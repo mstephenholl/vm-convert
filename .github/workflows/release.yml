@@ -18,7 +18,7 @@ jobs:
     outputs:
       version: ${{ steps.extract.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Extract and compare versions
         id: extract
         run: |
@@ -55,7 +55,7 @@ jobs:
             runner: macos-latest
             cross: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.94
         with:
           targets: ${{ matrix.target }}
