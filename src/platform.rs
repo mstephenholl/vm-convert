@@ -129,20 +129,14 @@ mod tests {
 
     #[test]
     fn test_platform_display_other() {
-        assert_eq!(
-            Platform::Other("freebsd".into()).to_string(),
-            "freebsd"
-        );
+        assert_eq!(Platform::Other("freebsd".into()).to_string(), "freebsd");
     }
 
     #[test]
     fn test_platform_equality() {
         assert_eq!(Platform::Linux, Platform::Linux);
         assert_ne!(Platform::Linux, Platform::MacOS);
-        assert_eq!(
-            Platform::Other("x".into()),
-            Platform::Other("x".into())
-        );
+        assert_eq!(Platform::Other("x".into()), Platform::Other("x".into()));
     }
 
     #[test]

@@ -40,7 +40,11 @@ fn run(args: Args) -> Result<()> {
     println!("  Disk src : {}", vm_config.disk_file);
     println!(
         "  Firmware : {}",
-        if vm_config.uefi { "UEFI (OVMF)" } else { "BIOS" }
+        if vm_config.uefi {
+            "UEFI (OVMF)"
+        } else {
+            "BIOS"
+        }
     );
     println!("  NICs     : {}", vm_config.nic_count);
     divider();
@@ -50,13 +54,10 @@ fn run(args: Args) -> Result<()> {
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
 
-    let output_dir: PathBuf = args
-        .output_dir
-        .unwrap_or_else(|| ovf_dir.to_path_buf());
+    let output_dir: PathBuf = args.output_dir.unwrap_or_else(|| ovf_dir.to_path_buf());
 
-    std::fs::create_dir_all(&output_dir).with_context(|| {
-        format!("Cannot create output directory: {}", output_dir.display())
-    })?;
+    std::fs::create_dir_all(&output_dir)
+        .with_context(|| format!("Cannot create output directory: {}", output_dir.display()))?;
 
     let vmdk_path = ovf_dir.join(&vm_config.disk_file);
     let qcow2_path = output_dir.join(format!("{vm_name}.qcow2"));
@@ -107,10 +108,7 @@ fn run(args: Args) -> Result<()> {
             platform::Platform::Other(ref os) => {
                 divider();
                 println!("Platform {os}: manual import required.");
-                println!(
-                    "  virsh define \"{}\"",
-                    xml_path.display()
-                );
+                println!("  virsh define \"{}\"", xml_path.display());
             }
         }
     }

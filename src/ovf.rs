@@ -48,8 +48,7 @@ pub fn parse_ovf_str(content: &str, uefi: bool) -> Result<VmConfig> {
     let root = doc.root_element();
 
     let name = extract_vm_name(&root).unwrap_or_else(|| "converted-vm".to_string());
-    let disk_file =
-        extract_disk_file(&root).context("OVF contains no .vmdk file reference")?;
+    let disk_file = extract_disk_file(&root).context("OVF contains no .vmdk file reference")?;
     let (vcpu_count, memory_mb, nic_count) = extract_hardware(&root)?;
 
     Ok(VmConfig {
@@ -106,9 +105,7 @@ fn extract_disk_file<'a>(root: &'a roxmltree::Node<'a, 'a>) -> Option<String> {
         })
 }
 
-fn extract_hardware<'a>(
-    root: &'a roxmltree::Node<'a, 'a>,
-) -> Result<(u32, u64, u32)> {
+fn extract_hardware<'a>(root: &'a roxmltree::Node<'a, 'a>) -> Result<(u32, u64, u32)> {
     let mut vcpu_count: u32 = 1;
     let mut memory_mb: u64 = 1024;
     let mut nic_count: u32 = 0;
@@ -121,11 +118,11 @@ fn extract_hardware<'a>(
     };
 
     for item in root.descendants().filter(|n| n.tag_name().name() == "Item") {
-        let resource_type: Option<u32> = child_text(&item, "ResourceType")
-            .and_then(|t| t.parse().ok());
+        let resource_type: Option<u32> =
+            child_text(&item, "ResourceType").and_then(|t| t.parse().ok());
 
-        let virtual_quantity: Option<u64> = child_text(&item, "VirtualQuantity")
-            .and_then(|t| t.parse().ok());
+        let virtual_quantity: Option<u64> =
+            child_text(&item, "VirtualQuantity").and_then(|t| t.parse().ok());
 
         match resource_type {
             Some(3) => {
@@ -264,7 +261,10 @@ mod tests {
     #[test]
     fn test_missing_disk_file_is_error() {
         let result = parse_ovf_str(OVF_NO_DISK, false);
-        assert!(result.is_err(), "Expected error when no vmdk reference exists");
+        assert!(
+            result.is_err(),
+            "Expected error when no vmdk reference exists"
+        );
     }
 
     #[test]
@@ -280,10 +280,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_preserves_dashes_and_underscores() {
-        assert_eq!(
-            sanitize_vm_name("ubuntu-server_v2"),
-            "ubuntu-server_v2"
-        );
+        assert_eq!(sanitize_vm_name("ubuntu-server_v2"), "ubuntu-server_v2");
     }
 
     #[test]

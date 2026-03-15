@@ -37,7 +37,10 @@ pub fn convert_disk(
     pb.set_message(format!(
         "Converting {} → {}.{}",
         vmdk_path.file_name().unwrap_or_default().to_string_lossy(),
-        output_path.file_stem().unwrap_or_default().to_string_lossy(),
+        output_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy(),
         format
     ));
 
@@ -49,7 +52,9 @@ pub fn convert_disk(
         .context("Output path contains non-UTF-8 characters")?;
 
     let mut child = Command::new(qemu_img_path)
-        .args(["convert", "-p", "-f", "vmdk", "-O", format, vmdk_str, out_str])
+        .args([
+            "convert", "-p", "-f", "vmdk", "-O", format, vmdk_str, out_str,
+        ])
         .stderr(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
@@ -65,7 +70,9 @@ pub fn convert_disk(
         drain_stderr_progress(stderr, &pb);
     }
 
-    let status = child.wait().context("Failed to wait for qemu-img process")?;
+    let status = child
+        .wait()
+        .context("Failed to wait for qemu-img process")?;
 
     if status.success() {
         pb.finish_with_message("Disk conversion complete ✓");
@@ -85,9 +92,7 @@ fn build_progress_bar() -> ProgressBar {
     let pb = ProgressBar::new(100);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template(
-                "[{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>3}% | {msg}",
-            )
+            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>3}% | {msg}")
             .expect("static template is valid")
             .progress_chars("█▉▊▋▌▍▎▏ "),
     );

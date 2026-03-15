@@ -53,8 +53,7 @@ mod tests {
 
     #[test]
     fn test_name_override() {
-        let args =
-            Args::parse_from(["vm-convert", "--name", "my-vm", "/tmp/test.ovf"]);
+        let args = Args::parse_from(["vm-convert", "--name", "my-vm", "/tmp/test.ovf"]);
         assert_eq!(args.name.as_deref(), Some("my-vm"));
     }
 
@@ -66,11 +65,7 @@ mod tests {
 
     #[test]
     fn test_output_dir_set() {
-        let args = Args::parse_from([
-            "vm-convert",
-            "--output-dir", "/tmp/output",
-            "/tmp/test.ovf",
-        ]);
+        let args = Args::parse_from(["vm-convert", "--output-dir", "/tmp/output", "/tmp/test.ovf"]);
         assert_eq!(
             args.output_dir.as_deref(),
             Some(std::path::Path::new("/tmp/output"))
