@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate tag/version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract and compare versions
+        id: extract
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Git tag version:    $TAG_VERSION"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Version mismatch: Cargo.toml ($CARGO_VERSION) != tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "version=$CARGO_VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: false
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            cross: false
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            cross: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl-tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build (native)
+        if: "!matrix.cross"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          BINARY_NAME="vm-convert-v${{ needs.validate.outputs.version }}-${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/vm-convert" "$BINARY_NAME"
+          echo "BINARY_NAME=$BINARY_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}
+          path: ${{ env.BINARY_NAME }}
+
+  release:
+    name: Create release
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum vm-convert-* > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ needs.validate.outputs.version }}
+          body: |
+            ## vm-convert v${{ needs.validate.outputs.version }}
+
+            ### Release binaries
+
+            | File | Target |
+            |------|--------|
+            | `vm-convert-v${{ needs.validate.outputs.version }}-x86_64-unknown-linux-gnu` | Linux x86_64 (glibc) |
+            | `vm-convert-v${{ needs.validate.outputs.version }}-x86_64-unknown-linux-musl` | Linux x86_64 (musl, static) |
+            | `vm-convert-v${{ needs.validate.outputs.version }}-aarch64-unknown-linux-gnu` | Linux ARM64 |
+            | `vm-convert-v${{ needs.validate.outputs.version }}-x86_64-apple-darwin` | macOS Intel |
+            | `vm-convert-v${{ needs.validate.outputs.version }}-aarch64-apple-darwin` | macOS Apple Silicon |
+
+            ### Checksums
+
+            See `checksums-sha256.txt` for SHA-256 hashes of all binaries.
+          files: artifacts/*
+          generate_release_notes: true

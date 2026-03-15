@@ -158,6 +158,45 @@ are required to run the test suite.
 
 ---
 
+## Development
+
+### CI/CD
+
+- **CI** runs on every push and pull request to `main`: format check (`cargo fmt`), clippy lints, tests on Linux + macOS, and a release build
+- **Releases** are triggered by pushing a SemVer git tag (e.g., `v0.2.0`)
+- Release builds produce binaries for 5 targets across Linux and macOS
+- Each release includes SHA-256 checksums for all binaries
+
+### Versioning
+
+This project follows [Semantic Versioning](https://semver.org/). The version source of truth is `Cargo.toml`.
+
+**Release process:**
+
+```bash
+# 1. Bump version in Cargo.toml
+# 2. Update Cargo.lock
+cargo check
+# 3. Commit
+git add Cargo.toml Cargo.lock
+git commit -m "release: v0.2.0"
+# 4. Tag and push
+git tag v0.2.0
+git push origin main --tags
+```
+
+### Release targets
+
+| Target | Description |
+|--------|-------------|
+| `x86_64-unknown-linux-gnu` | Linux x86_64 (glibc) |
+| `x86_64-unknown-linux-musl` | Linux x86_64 (musl, static) |
+| `aarch64-unknown-linux-gnu` | Linux ARM64 |
+| `x86_64-apple-darwin` | macOS Intel |
+| `aarch64-apple-darwin` | macOS Apple Silicon |
+
+---
+
 ## Architecture
 
 ```
