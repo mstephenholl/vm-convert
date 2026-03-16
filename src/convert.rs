@@ -1,11 +1,11 @@
 /// convert.rs — Shell out to `qemu-img convert` and report live progress.
 ///
-/// `qemu-img -p` writes progress to **stderr** using `\r` (carriage return)
+/// `qemu-img -p` writes progress to **stdout** using `\r` (carriage return)
 /// to overwrite the same terminal line.  The format is:
 ///
 ///     "    (XX.XX/100%)"
 ///
-/// We read stderr in a raw byte-level loop, splitting on both `\r` and `\n`,
+/// We read stdout in a raw byte-level loop, splitting on both `\r` and `\n`,
 /// and parse each token for a percentage value to drive an indicatif bar.
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -61,8 +61,8 @@ pub fn convert_disk(
 
     let mut child = Command::new(qemu_img_path)
         .args(&qemu_args)
-        .stderr(Stdio::piped())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .with_context(|| {
             format!(
@@ -71,9 +71,9 @@ pub fn convert_disk(
             )
         })?;
 
-    // Drain stderr and update the progress bar
-    if let Some(stderr) = child.stderr.take() {
-        drain_stderr_progress(stderr, &pb);
+    // Drain stdout (where `qemu-img -p` writes progress) and update the bar
+    if let Some(stdout) = child.stdout.take() {
+        drain_stderr_progress(stdout, &pb);
     }
 
     let status = child
