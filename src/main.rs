@@ -24,12 +24,12 @@ fn run(args: Args) -> Result<()> {
     println!("✓ VM folder : {}", args.vm_dir.display());
     println!(
         "  .ovf      : {}",
-        inv.ovf_path.file_name().unwrap_or_default().to_string_lossy()
+        inv.ovf_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
     );
-    println!(
-        "  .vmdk     : {} file(s)",
-        inv.vmdk_paths.len()
-    );
+    println!("  .vmdk     : {} file(s)", inv.vmdk_paths.len());
     if let Some(ref nvram) = inv.nvram_path {
         println!(
             "  .nvram    : {}",

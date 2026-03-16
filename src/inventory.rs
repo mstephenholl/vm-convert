@@ -55,7 +55,11 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
 
     for entry in &entries {
         let path = entry.path();
-        match path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()) {
+        match path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+        {
             Some(ext) if ext == "ovf" => ovf_files.push(path),
             Some(ext) if ext == "vmdk" => vmdk_files.push(path),
             Some(ext) if ext == "nvram" => nvram_file = Some(path),
@@ -70,7 +74,12 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
     if ovf_files.len() > 1 {
         let names: Vec<_> = ovf_files
             .iter()
-            .map(|p| p.file_name().unwrap_or_default().to_string_lossy().to_string())
+            .map(|p| {
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            })
             .collect();
         bail!(
             "Multiple .ovf files found in {} — expected exactly one: {}",
