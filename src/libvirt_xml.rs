@@ -433,7 +433,7 @@ mod tests {
             input_format: DiskFormat::Vmdk,
             bus: DiskBus::Virtio,
         });
-        let paths = vec![
+        let paths = [
             PathBuf::from("/tmp/os.qcow2"),
             PathBuf::from("/tmp/data.qcow2"),
         ];
@@ -454,7 +454,7 @@ mod tests {
             input_format: DiskFormat::Vmdk,
             bus: DiskBus::Virtio,
         });
-        let paths = vec![
+        let paths = [
             PathBuf::from("/tmp/os.qcow2"),
             PathBuf::from("/tmp/data.qcow2"),
         ];
@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn test_uefi_custom_nvram_path() {
         let cfg = uefi_config();
-        let paths = vec![PathBuf::from("/tmp/uefi.qcow2")];
+        let paths = [PathBuf::from("/tmp/uefi.qcow2")];
         let refs: Vec<&PathBuf> = paths.iter().collect();
         let nvram = Path::new("/output/custom.nvram");
         let xml = generate(&cfg, "uefi-vm", &refs, Some(nvram), None, &[], false).unwrap();
@@ -513,7 +513,7 @@ mod tests {
     #[test]
     fn test_uefi_custom_ovmf_code_path() {
         let cfg = uefi_config();
-        let paths = vec![PathBuf::from("/tmp/uefi.qcow2")];
+        let paths = [PathBuf::from("/tmp/uefi.qcow2")];
         let refs: Vec<&PathBuf> = paths.iter().collect();
         let ovmf = Path::new("/custom/OVMF_CODE.fd");
         let xml = generate(&cfg, "uefi-vm", &refs, None, Some(ovmf), &[], false).unwrap();
@@ -589,7 +589,7 @@ mod tests {
     fn test_scsi_bus_in_xml() {
         let mut cfg = bios_config();
         cfg.disks[0].bus = DiskBus::Scsi;
-        let paths = vec![PathBuf::from("/tmp/test.qcow2")];
+        let paths = [PathBuf::from("/tmp/test.qcow2")];
         let refs: Vec<&PathBuf> = paths.iter().collect();
         let xml = generate(&cfg, "test-vm", &refs, None, None, &[], false).unwrap();
         assert!(xml.contains(r#"bus="scsi""#));
@@ -619,7 +619,7 @@ mod tests {
     fn test_force_virtio_overrides_scsi() {
         let mut cfg = bios_config();
         cfg.disks[0].bus = DiskBus::Scsi;
-        let paths = vec![PathBuf::from("/tmp/test.qcow2")];
+        let paths = [PathBuf::from("/tmp/test.qcow2")];
         let refs: Vec<&PathBuf> = paths.iter().collect();
         let xml = generate(&cfg, "test-vm", &refs, None, None, &[], true).unwrap();
         assert!(xml.contains(r#"bus="virtio""#));
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn test_cdrom_devices() {
         let cfg = bios_config();
-        let disk_paths = vec![PathBuf::from("/tmp/test.qcow2")];
+        let disk_paths = [PathBuf::from("/tmp/test.qcow2")];
         let iso_paths = vec![PathBuf::from("/tmp/tools.iso")];
         let refs: Vec<&PathBuf> = disk_paths.iter().collect();
         let xml = generate(&cfg, "test-vm", &refs, None, None, &iso_paths, false).unwrap();
