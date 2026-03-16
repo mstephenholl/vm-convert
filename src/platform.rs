@@ -1,9 +1,9 @@
-/// platform.rs — Platform detection, prerequisite checking, and libvirt import.
+/// platform.rs — Platform detection, prerequisite checking, OVMF discovery, and libvirt import.
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-// ─── Platform enum ────────────────────────────────────────────────────────────
+// ─── Platform enum ───────────────────────────────────────────────────────────
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Platform {
@@ -22,7 +22,23 @@ impl std::fmt::Display for Platform {
     }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+/// Known OVMF firmware code paths, probed in order.
+const OVMF_SEARCH_PATHS: &[&str] = &[
+    // Ubuntu / Debian
+    "/usr/share/OVMF/OVMF_CODE.fd",
+    // Fedora
+    "/usr/share/edk2/ovmf/OVMF_CODE.fd",
+    // Arch
+    "/usr/share/edk2-ovmf/x64/OVMF_CODE.fd",
+    // openSUSE
+    "/usr/share/qemu/ovmf-x86_64-code.bin",
+    // macOS ARM (Homebrew)
+    "/opt/homebrew/share/qemu/edk2-x86_64-code.fd",
+    // macOS Intel (Homebrew)
+    "/usr/local/share/qemu/edk2-x86_64-code.fd",
+];
+
+// ─── Public API ──────────────────────────────────────────────────────────────
 
 /// Return the platform the binary is currently running on.
 pub fn current_platform() -> Platform {
@@ -44,7 +60,7 @@ fn install_hint(platform: &Platform) -> String {
     }
 }
 
-/// Locate `qemu-img` in PATH.  Returns an actionable error message when missing.
+/// Locate `qemu-img` in PATH.
 pub fn find_qemu_img() -> Result<PathBuf> {
     which::which("qemu-img").map_err(|_| {
         let hint = install_hint(&current_platform());
@@ -52,10 +68,17 @@ pub fn find_qemu_img() -> Result<PathBuf> {
     })
 }
 
-/// Run `virsh define <xml_path>` to register the VM with libvirt.
+/// Probe for the OVMF firmware code file on the current system.
 ///
-/// Only meaningful on Linux; on macOS this is a no-op and the caller should
-/// skip this step.
+/// Returns `None` if no known path exists.
+pub fn find_ovmf_code() -> Option<PathBuf> {
+    OVMF_SEARCH_PATHS
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.exists())
+}
+
+/// Run `virsh define <xml_path>` to register the VM with libvirt.
 pub fn import_to_libvirt(xml_path: &Path) -> Result<()> {
     let xml_str = xml_path
         .to_str()
@@ -110,7 +133,6 @@ mod tests {
     #[test]
     fn test_current_platform_is_linux_or_macos_in_ci() {
         let p = current_platform();
-        // This binary runs on Linux (CI) or macOS (dev).
         assert!(
             matches!(p, Platform::Linux | Platform::MacOS | Platform::Other(_)),
             "Unexpected platform: {p}"
@@ -141,17 +163,12 @@ mod tests {
 
     #[test]
     fn test_find_qemu_img_returns_result_type() {
-        // We don't assert success/failure because qemu-img may or may not
-        // be installed in the test environment.  We only assert the function
-        // returns without panicking.
         let _result = find_qemu_img();
     }
 
     #[test]
     fn test_import_to_libvirt_nonexistent_xml_errors() {
         let result = import_to_libvirt(Path::new("/nonexistent/path.xml"));
-        // Either virsh is missing (context error) or returns non-zero (bail!).
-        // Either way it must be Err.
         assert!(
             result.is_err(),
             "Expected error when virsh is unavailable or XML file is missing"
@@ -160,7 +177,22 @@ mod tests {
 
     #[test]
     fn test_print_prerequisites_does_not_panic() {
-        // Just exercise the function to ensure no panics on any platform.
         print_prerequisites();
+    }
+
+    #[test]
+    fn test_find_ovmf_code_returns_option() {
+        // On CI/dev it may or may not exist; just ensure it doesn't panic
+        let _result = find_ovmf_code();
+    }
+
+    #[test]
+    fn test_ovmf_search_paths_are_absolute() {
+        for path in OVMF_SEARCH_PATHS {
+            assert!(
+                path.starts_with('/'),
+                "OVMF path should be absolute: {path}"
+            );
+        }
     }
 }

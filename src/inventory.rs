@@ -2,21 +2,30 @@
 ///
 /// A valid VM export folder must contain:
 ///   - Exactly one `.ovf` file  (required)
-///   - At least one `.vmdk` file (required)
+///   - At least one disk image file (required)
 ///   - Optionally a `.nvram` file (indicates UEFI firmware)
+///   - Optionally a `.mf` manifest file
+///   - Optionally `.iso` files
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-// ─── Public data model ────────────────────────────────────────────────────────
+/// Disk file extensions we recognise.
+const DISK_EXTENSIONS: &[&str] = &["vmdk", "vhd", "vhdx", "vdi", "raw", "img", "qcow2"];
+
+// ─── Public data model ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VmInventory {
     /// Path to the .ovf descriptor file
     pub ovf_path: PathBuf,
-    /// Paths to all .vmdk disk files found in the folder
-    pub vmdk_paths: Vec<PathBuf>,
+    /// Paths to all disk image files found in the folder
+    pub disk_paths: Vec<PathBuf>,
     /// Path to the .nvram file, if present (indicates UEFI)
     pub nvram_path: Option<PathBuf>,
+    /// Path to the .mf manifest file, if present
+    pub mf_path: Option<PathBuf>,
+    /// Paths to .iso files found in the folder
+    pub iso_paths: Vec<PathBuf>,
 }
 
 impl VmInventory {
@@ -26,15 +35,9 @@ impl VmInventory {
     }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─── Public API ──────────────────────────────────────────────────────────────
 
 /// Scan `dir` for VM export artefacts and return a validated inventory.
-///
-/// Errors when:
-///   - `dir` does not exist or is not a directory
-///   - No `.ovf` file is found
-///   - More than one `.ovf` file is found
-///   - No `.vmdk` file is found
 pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
     if !dir.exists() {
         bail!("Directory not found: {}", dir.display());
@@ -50,8 +53,10 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
         .collect();
 
     let mut ovf_files: Vec<PathBuf> = Vec::new();
-    let mut vmdk_files: Vec<PathBuf> = Vec::new();
+    let mut disk_files: Vec<PathBuf> = Vec::new();
     let mut nvram_files: Vec<PathBuf> = Vec::new();
+    let mut mf_files: Vec<PathBuf> = Vec::new();
+    let mut iso_files: Vec<PathBuf> = Vec::new();
 
     for entry in &entries {
         let path = entry.path();
@@ -61,8 +66,10 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
             .map(|e| e.to_lowercase())
         {
             Some(ext) if ext == "ovf" => ovf_files.push(path),
-            Some(ext) if ext == "vmdk" => vmdk_files.push(path),
+            Some(ext) if DISK_EXTENSIONS.contains(&ext.as_str()) => disk_files.push(path),
             Some(ext) if ext == "nvram" => nvram_files.push(path),
+            Some(ext) if ext == "mf" => mf_files.push(path),
+            Some(ext) if ext == "iso" => iso_files.push(path),
             _ => {}
         }
     }
@@ -88,9 +95,9 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
         );
     }
 
-    // Validate VMDK
-    if vmdk_files.is_empty() {
-        bail!("No .vmdk file found in {}", dir.display());
+    // Validate disk files
+    if disk_files.is_empty() {
+        bail!("No disk image file found in {}", dir.display());
     }
 
     // Validate NVRAM
@@ -112,12 +119,15 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
     }
 
     // Sort for deterministic ordering
-    vmdk_files.sort();
+    disk_files.sort();
+    iso_files.sort();
 
     Ok(VmInventory {
         ovf_path: ovf_files.into_iter().next().unwrap(),
-        vmdk_paths: vmdk_files,
+        disk_paths: disk_files,
         nvram_path: nvram_files.into_iter().next(),
+        mf_path: mf_files.into_iter().next(),
+        iso_paths: iso_files,
     })
 }
 
@@ -142,7 +152,7 @@ mod tests {
 
         let inv = scan_vm_dir(tmp.path()).unwrap();
         assert_eq!(inv.ovf_path.file_name().unwrap(), "vm.ovf");
-        assert_eq!(inv.vmdk_paths.len(), 1);
+        assert_eq!(inv.disk_paths.len(), 1);
         assert!(inv.has_nvram());
     }
 
@@ -157,14 +167,40 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_vmdk_files() {
+    fn test_multiple_disk_files() {
         let tmp = TempDir::new().unwrap();
         create_file(tmp.path(), "vm.ovf");
         create_file(tmp.path(), "disk1.vmdk");
         create_file(tmp.path(), "disk2.vmdk");
 
         let inv = scan_vm_dir(tmp.path()).unwrap();
-        assert_eq!(inv.vmdk_paths.len(), 2);
+        assert_eq!(inv.disk_paths.len(), 2);
+    }
+
+    #[test]
+    fn test_non_vmdk_disk_formats() {
+        let tmp = TempDir::new().unwrap();
+        create_file(tmp.path(), "vm.ovf");
+        create_file(tmp.path(), "disk.vdi");
+
+        let inv = scan_vm_dir(tmp.path()).unwrap();
+        assert_eq!(inv.disk_paths.len(), 1);
+        assert!(inv.disk_paths[0]
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with(".vdi"));
+    }
+
+    #[test]
+    fn test_vhd_disk_detected() {
+        let tmp = TempDir::new().unwrap();
+        create_file(tmp.path(), "vm.ovf");
+        create_file(tmp.path(), "disk.vhd");
+
+        let inv = scan_vm_dir(tmp.path()).unwrap();
+        assert_eq!(inv.disk_paths.len(), 1);
     }
 
     #[test]
@@ -188,12 +224,12 @@ mod tests {
     }
 
     #[test]
-    fn test_no_vmdk_file_errors() {
+    fn test_no_disk_file_errors() {
         let tmp = TempDir::new().unwrap();
         create_file(tmp.path(), "vm.ovf");
 
         let err = scan_vm_dir(tmp.path()).unwrap_err();
-        assert!(err.to_string().contains("No .vmdk file found"));
+        assert!(err.to_string().contains("No disk image file found"));
     }
 
     #[test]
@@ -213,16 +249,37 @@ mod tests {
     }
 
     #[test]
+    fn test_mf_file_detected() {
+        let tmp = TempDir::new().unwrap();
+        create_file(tmp.path(), "vm.ovf");
+        create_file(tmp.path(), "vm.vmdk");
+        create_file(tmp.path(), "vm.mf");
+
+        let inv = scan_vm_dir(tmp.path()).unwrap();
+        assert!(inv.mf_path.is_some());
+        assert_eq!(inv.mf_path.unwrap().file_name().unwrap(), "vm.mf");
+    }
+
+    #[test]
+    fn test_iso_files_detected() {
+        let tmp = TempDir::new().unwrap();
+        create_file(tmp.path(), "vm.ovf");
+        create_file(tmp.path(), "vm.vmdk");
+        create_file(tmp.path(), "tools.iso");
+
+        let inv = scan_vm_dir(tmp.path()).unwrap();
+        assert_eq!(inv.iso_paths.len(), 1);
+    }
+
+    #[test]
     fn test_ignores_unrelated_files() {
         let tmp = TempDir::new().unwrap();
         create_file(tmp.path(), "vm.ovf");
         create_file(tmp.path(), "vm.vmdk");
         create_file(tmp.path(), "notes.txt");
-        create_file(tmp.path(), "vm.mf");
-        create_file(tmp.path(), "vm.iso");
 
         let inv = scan_vm_dir(tmp.path()).unwrap();
-        assert_eq!(inv.vmdk_paths.len(), 1);
+        assert_eq!(inv.disk_paths.len(), 1);
         assert!(!inv.has_nvram());
     }
 

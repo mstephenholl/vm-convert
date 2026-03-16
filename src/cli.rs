@@ -12,8 +12,8 @@ use std::path::PathBuf;
     long_about = None
 )]
 pub struct Args {
-    /// Path to the folder containing the exported VM (.ovf, .vmdk, and optionally .nvram)
-    pub vm_dir: PathBuf,
+    /// Path to a VM export folder (.ovf + disks) or an .ova archive file
+    pub input: PathBuf,
 
     /// Output directory for converted .qcow2 and .xml files
     /// [default: same directory as the VM folder]
@@ -33,6 +33,18 @@ pub struct Args {
           value_parser = ["qcow2", "raw"],
           help = "Output disk format [qcow2 | raw]")]
     pub format: String,
+
+    /// Skip .mf manifest verification (if a manifest file is present)
+    #[arg(long, default_value_t = false)]
+    pub skip_verify: bool,
+
+    /// Override all disk bus types to VirtIO (ignore OVF controller mappings)
+    #[arg(long, default_value_t = false)]
+    pub force_virtio: bool,
+
+    /// Path to the OVMF firmware code file (overrides auto-detection)
+    #[arg(long, value_name = "PATH")]
+    pub ovmf_code: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -70,5 +82,37 @@ mod tests {
             args.output_dir.as_deref(),
             Some(std::path::Path::new("/tmp/output"))
         );
+    }
+
+    #[test]
+    fn test_skip_verify_flag() {
+        let args = Args::parse_from(["vm-convert", "--skip-verify", "/tmp/myvm"]);
+        assert!(args.skip_verify);
+    }
+
+    #[test]
+    fn test_force_virtio_flag() {
+        let args = Args::parse_from(["vm-convert", "--force-virtio", "/tmp/myvm"]);
+        assert!(args.force_virtio);
+    }
+
+    #[test]
+    fn test_ovmf_code_flag() {
+        let args = Args::parse_from([
+            "vm-convert",
+            "--ovmf-code",
+            "/custom/OVMF_CODE.fd",
+            "/tmp/myvm",
+        ]);
+        assert_eq!(
+            args.ovmf_code.as_deref(),
+            Some(std::path::Path::new("/custom/OVMF_CODE.fd"))
+        );
+    }
+
+    #[test]
+    fn test_input_accepts_ova_path() {
+        let args = Args::parse_from(["vm-convert", "/tmp/myvm.ova"]);
+        assert_eq!(args.input, PathBuf::from("/tmp/myvm.ova"));
     }
 }
