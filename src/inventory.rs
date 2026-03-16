@@ -51,7 +51,7 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
 
     let mut ovf_files: Vec<PathBuf> = Vec::new();
     let mut vmdk_files: Vec<PathBuf> = Vec::new();
-    let mut nvram_file: Option<PathBuf> = None;
+    let mut nvram_files: Vec<PathBuf> = Vec::new();
 
     for entry in &entries {
         let path = entry.path();
@@ -62,7 +62,7 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
         {
             Some(ext) if ext == "ovf" => ovf_files.push(path),
             Some(ext) if ext == "vmdk" => vmdk_files.push(path),
-            Some(ext) if ext == "nvram" => nvram_file = Some(path),
+            Some(ext) if ext == "nvram" => nvram_files.push(path),
             _ => {}
         }
     }
@@ -93,13 +93,31 @@ pub fn scan_vm_dir(dir: &Path) -> Result<VmInventory> {
         bail!("No .vmdk file found in {}", dir.display());
     }
 
+    // Validate NVRAM
+    if nvram_files.len() > 1 {
+        let names: Vec<_> = nvram_files
+            .iter()
+            .map(|p| {
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        bail!(
+            "Multiple .nvram files found in {} — expected at most one: {}",
+            dir.display(),
+            names.join(", ")
+        );
+    }
+
     // Sort for deterministic ordering
     vmdk_files.sort();
 
     Ok(VmInventory {
         ovf_path: ovf_files.into_iter().next().unwrap(),
         vmdk_paths: vmdk_files,
-        nvram_path: nvram_file,
+        nvram_path: nvram_files.into_iter().next(),
     })
 }
 
@@ -206,6 +224,18 @@ mod tests {
         let inv = scan_vm_dir(tmp.path()).unwrap();
         assert_eq!(inv.vmdk_paths.len(), 1);
         assert!(!inv.has_nvram());
+    }
+
+    #[test]
+    fn test_multiple_nvram_files_errors() {
+        let tmp = TempDir::new().unwrap();
+        create_file(tmp.path(), "vm.ovf");
+        create_file(tmp.path(), "vm.vmdk");
+        create_file(tmp.path(), "a.nvram");
+        create_file(tmp.path(), "b.nvram");
+
+        let err = scan_vm_dir(tmp.path()).unwrap_err();
+        assert!(err.to_string().contains("Multiple .nvram files found"));
     }
 
     #[test]

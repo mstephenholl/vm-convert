@@ -52,7 +52,9 @@ fn run(args: Args) -> Result<()> {
     println!("  Name     : {vm_name}");
     println!("  vCPUs    : {}", vm_config.vcpu_count);
     println!("  RAM      : {} MiB", vm_config.memory_mb);
-    println!("  Disk src : {}", vm_config.disk_file);
+    for disk in &vm_config.disk_files {
+        println!("  Disk src : {disk}");
+    }
     println!(
         "  Firmware : {}",
         if vm_config.uefi {
@@ -71,30 +73,47 @@ fn run(args: Args) -> Result<()> {
     std::fs::create_dir_all(&output_dir)
         .with_context(|| format!("Cannot create output directory: {}", output_dir.display()))?;
 
-    // Cross-validate: the VMDK referenced in the OVF must exist in the folder
-    let vmdk_path = vm_dir.join(&vm_config.disk_file);
-    if !vmdk_path.exists() {
-        anyhow::bail!(
-            "OVF references disk '{}' but it was not found in {}",
-            vm_config.disk_file,
-            vm_dir.display()
-        );
+    // Cross-validate: every VMDK referenced in the OVF must exist in the folder
+    let mut disk_pairs: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for (i, disk_file) in vm_config.disk_files.iter().enumerate() {
+        let vmdk_path = vm_dir.join(disk_file);
+        if !vmdk_path.exists() {
+            anyhow::bail!(
+                "OVF references disk '{}' but it was not found in {}",
+                disk_file,
+                vm_dir.display()
+            );
+        }
+        let suffix = if i == 0 {
+            String::new()
+        } else {
+            format!("_{i}")
+        };
+        let qcow2_path = output_dir.join(format!("{vm_name}{suffix}.qcow2"));
+        disk_pairs.push((vmdk_path, qcow2_path));
     }
 
-    let qcow2_path = output_dir.join(format!("{vm_name}.qcow2"));
     let xml_path = output_dir.join(format!("{vm_name}.xml"));
 
     println!("Output dir : {}", output_dir.display());
-    println!("VMDK source: {}", vmdk_path.display());
-    println!("QCOW2 dest : {}", qcow2_path.display());
+    for (vmdk, qcow2) in &disk_pairs {
+        println!(
+            "  {} → {}",
+            vmdk.file_name().unwrap_or_default().to_string_lossy(),
+            qcow2.file_name().unwrap_or_default().to_string_lossy()
+        );
+    }
     divider();
 
-    // ── Step 5: Convert disk ──────────────────────────────────────────────────
-    convert::convert_disk(&qemu_img, &vmdk_path, &qcow2_path, &args.format)?;
-    println!("✓ Disk converted → {}", qcow2_path.display());
+    // ── Step 5: Convert disks ─────────────────────────────────────────────────
+    for (vmdk_path, qcow2_path) in &disk_pairs {
+        convert::convert_disk(&qemu_img, vmdk_path, qcow2_path, &args.format)?;
+        println!("✓ Disk converted → {}", qcow2_path.display());
+    }
 
     // ── Step 6: Generate libvirt XML ──────────────────────────────────────────
-    let xml = libvirt_xml::generate(&vm_config, &vm_name, &qcow2_path)?;
+    let qcow2_paths: Vec<&PathBuf> = disk_pairs.iter().map(|(_, q)| q).collect();
+    let xml = libvirt_xml::generate(&vm_config, &vm_name, &qcow2_paths)?;
     std::fs::write(&xml_path, &xml)
         .with_context(|| format!("Cannot write XML: {}", xml_path.display()))?;
     println!("✓ Libvirt XML → {}", xml_path.display());

@@ -21,8 +21,8 @@ pub struct VmConfig {
     pub vcpu_count: u32,
     /// RAM in MiB
     pub memory_mb: u64,
-    /// Relative path to the .vmdk file (href from OVF References section)
-    pub disk_file: String,
+    /// Relative paths to .vmdk files (hrefs from OVF References section)
+    pub disk_files: Vec<String>,
     /// Number of virtual NICs
     pub nic_count: u32,
     /// True when a .nvram sidecar file was present alongside the .ovf
@@ -46,14 +46,17 @@ pub fn parse_ovf_str(content: &str, uefi: bool) -> Result<VmConfig> {
     let root = doc.root_element();
 
     let name = extract_vm_name(&root).unwrap_or_else(|| "converted-vm".to_string());
-    let disk_file = extract_disk_file(&root).context("OVF contains no .vmdk file reference")?;
+    let disk_files = extract_disk_files(&root);
+    if disk_files.is_empty() {
+        anyhow::bail!("OVF contains no .vmdk file reference");
+    }
     let (vcpu_count, memory_mb, nic_count) = extract_hardware(&root)?;
 
     Ok(VmConfig {
         name,
         vcpu_count,
         memory_mb,
-        disk_file,
+        disk_files,
         nic_count,
         uefi,
     })
@@ -91,16 +94,17 @@ pub fn sanitize_vm_name(name: &str) -> String {
         .collect()
 }
 
-fn extract_disk_file<'a>(root: &'a roxmltree::Node<'a, 'a>) -> Option<String> {
+fn extract_disk_files<'a>(root: &'a roxmltree::Node<'a, 'a>) -> Vec<String> {
     // OVF References section: <File ovf:href="disk.vmdk" ovf:id="file1"/>
     root.descendants()
         .filter(|n| n.tag_name().name() == "File")
-        .find_map(|n| {
+        .filter_map(|n| {
             n.attributes()
                 .find(|a| a.name() == "href")
                 .filter(|a| a.value().to_lowercase().ends_with(".vmdk"))
                 .map(|a| a.value().to_string())
         })
+        .collect()
 }
 
 fn extract_hardware<'a>(root: &'a roxmltree::Node<'a, 'a>) -> Result<(u32, u64, u32)> {
@@ -239,7 +243,7 @@ mod tests {
         assert_eq!(cfg.name, "Ubuntu-Server-Test");
         assert_eq!(cfg.vcpu_count, 4);
         assert_eq!(cfg.memory_mb, 4096);
-        assert_eq!(cfg.disk_file, "ubuntu-server.vmdk");
+        assert_eq!(cfg.disk_files, vec!["ubuntu-server.vmdk"]);
         assert_eq!(cfg.nic_count, 1);
         assert!(!cfg.uefi);
     }
@@ -254,6 +258,37 @@ mod tests {
     fn test_gib_memory_converted_to_mib() {
         let cfg = parse_ovf_str(OVF_GIB_MEMORY, false).unwrap();
         assert_eq!(cfg.memory_mb, 8192); // 8 GiB → 8192 MiB
+    }
+
+    const OVF_MULTI_DISK: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Envelope
+  xmlns="http://schemas.dmtf.org/ovf/envelope/1"
+  xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1"
+  xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData">
+  <References>
+    <File ovf:href="os-disk.vmdk" ovf:id="file1"/>
+    <File ovf:href="data-disk.vmdk" ovf:id="file2"/>
+  </References>
+  <VirtualSystem ovf:id="multi-disk-vm">
+    <Name>Multi Disk VM</Name>
+    <VirtualHardwareSection>
+      <Item>
+        <rasd:ResourceType>3</rasd:ResourceType>
+        <rasd:VirtualQuantity>2</rasd:VirtualQuantity>
+      </Item>
+      <Item>
+        <rasd:ResourceType>4</rasd:ResourceType>
+        <rasd:VirtualQuantity>4096</rasd:VirtualQuantity>
+        <rasd:AllocationUnits>byte * 2^20</rasd:AllocationUnits>
+      </Item>
+    </VirtualHardwareSection>
+  </VirtualSystem>
+</Envelope>"#;
+
+    #[test]
+    fn test_multiple_disk_files_parsed() {
+        let cfg = parse_ovf_str(OVF_MULTI_DISK, false).unwrap();
+        assert_eq!(cfg.disk_files, vec!["os-disk.vmdk", "data-disk.vmdk"]);
     }
 
     #[test]

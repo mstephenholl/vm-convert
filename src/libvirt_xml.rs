@@ -12,21 +12,26 @@
 ///  - OVMF (UEFI) paths follow Ubuntu packaging: /usr/share/OVMF/OVMF_CODE.fd
 use crate::ovf::VmConfig;
 use anyhow::Result;
-use std::path::Path;
+use std::path::PathBuf;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /// Generate a libvirt domain XML string for the given VM.
 ///
-/// `vm_name`   — the domain name (may differ from config.name via --name flag)
-/// `qcow2_path` — absolute path to the converted disk image
-pub fn generate(config: &VmConfig, vm_name: &str, qcow2_path: &Path) -> Result<String> {
-    let qcow2_str = qcow2_path
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("QCOW2 path contains non-UTF-8 characters"))?;
-
+/// `vm_name`     — the domain name (may differ from config.name via --name flag)
+/// `qcow2_paths` — absolute paths to the converted disk images (one per OVF disk)
+pub fn generate(config: &VmConfig, vm_name: &str, qcow2_paths: &[&PathBuf]) -> Result<String> {
     let os_block = build_os_block(config, vm_name);
-    let networks = build_network_interfaces(config.nic_count);
+
+    // PCI bus allocator: buses 0x00–0x03 are reserved (root, USB, ISA, virtio-serial).
+    // Disks start at 0x04, then NICs, then memballoon + rng follow.
+    let mut next_bus: u32 = 0x04;
+
+    let disks = build_disk_devices(qcow2_paths, &mut next_bus)?;
+    let networks = build_network_interfaces(config.nic_count, &mut next_bus);
+    let memballoon_bus = next_bus;
+    next_bus += 1;
+    let rng_bus = next_bus;
 
     let xml = format!(
         r#"<domain type="kvm">
@@ -55,12 +60,7 @@ pub fn generate(config: &VmConfig, vm_name: &str, qcow2_path: &Path) -> Result<S
   </pm>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <disk type="file" device="disk">
-      <driver name="qemu" type="qcow2" discard="unmap"/>
-      <source file="{qcow2_path}"/>
-      <target dev="vda" bus="virtio"/>
-      <address type="pci" domain="0x0000" bus="0x04" slot="0x00" function="0x0"/>
-    </disk>
+{disks}
     <controller type="virtio-serial" index="0">
       <address type="pci" domain="0x0000" bus="0x03" slot="0x00" function="0x0"/>
     </controller>
@@ -92,11 +92,11 @@ pub fn generate(config: &VmConfig, vm_name: &str, qcow2_path: &Path) -> Result<S
       <address type="pci" domain="0x0000" bus="0x00" slot="0x01" function="0x0"/>
     </video>
     <memballoon model="virtio">
-      <address type="pci" domain="0x0000" bus="0x06" slot="0x00" function="0x0"/>
+      <address type="pci" domain="0x0000" bus="0x{memballoon_bus:02x}" slot="0x00" function="0x0"/>
     </memballoon>
     <rng model="virtio">
       <backend model="random">/dev/urandom</backend>
-      <address type="pci" domain="0x0000" bus="0x07" slot="0x00" function="0x0"/>
+      <address type="pci" domain="0x0000" bus="0x{rng_bus:02x}" slot="0x00" function="0x0"/>
     </rng>
   </devices>
 </domain>
@@ -105,8 +105,10 @@ pub fn generate(config: &VmConfig, vm_name: &str, qcow2_path: &Path) -> Result<S
         memory = config.memory_mb,
         vcpu = config.vcpu_count,
         os_block = os_block,
-        qcow2_path = qcow2_str,
+        disks = disks,
         networks = networks,
+        memballoon_bus = memballoon_bus,
+        rng_bus = rng_bus,
     );
 
     Ok(xml)
@@ -131,13 +133,38 @@ fn build_os_block(config: &VmConfig, vm_name: &str) -> String {
     }
 }
 
+/// Generate one `<disk>` element per QCOW2 image.
+///
+/// Device names follow the VirtIO convention: vda, vdb, vdc, …
+fn build_disk_devices(qcow2_paths: &[&PathBuf], next_bus: &mut u32) -> Result<String> {
+    let mut blocks = Vec::new();
+    for (i, path) in qcow2_paths.iter().enumerate() {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("QCOW2 path contains non-UTF-8 characters"))?;
+        // vda, vdb, vdc, …
+        let dev_letter = (b'a' + i as u8) as char;
+        let bus = *next_bus;
+        *next_bus += 1;
+        blocks.push(format!(
+            r#"    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2" discard="unmap"/>
+      <source file="{path_str}"/>
+      <target dev="vd{dev_letter}" bus="virtio"/>
+      <address type="pci" domain="0x0000" bus="0x{bus:02x}" slot="0x00" function="0x0"/>
+    </disk>"#
+        ));
+    }
+    Ok(blocks.join("\n"))
+}
+
 /// Generate one `<interface>` element per NIC.  Always emit at least one.
-fn build_network_interfaces(nic_count: u32) -> String {
+fn build_network_interfaces(nic_count: u32, next_bus: &mut u32) -> String {
     let count = nic_count.max(1);
     (0..count)
-        .map(|i| {
-            // Start PCI bus at 0x05, increment per NIC
-            let bus = 0x05u32 + i;
+        .map(|_| {
+            let bus = *next_bus;
+            *next_bus += 1;
             format!(
                 r#"    <interface type="network">
       <source network="default"/>
@@ -163,7 +190,7 @@ mod tests {
             name: "test-vm".into(),
             vcpu_count: 2,
             memory_mb: 2048,
-            disk_file: "disk.vmdk".into(),
+            disk_files: vec!["disk.vmdk".into()],
             nic_count: 1,
             uefi: false,
         }
@@ -174,26 +201,37 @@ mod tests {
             name: "uefi-vm".into(),
             vcpu_count: 4,
             memory_mb: 8192,
-            disk_file: "disk.vmdk".into(),
+            disk_files: vec!["disk.vmdk".into()],
             nic_count: 2,
             uefi: true,
         }
+    }
+
+    fn gen(cfg: &VmConfig, name: &str, paths: &[PathBuf]) -> String {
+        let refs: Vec<&PathBuf> = paths.iter().collect();
+        generate(cfg, name, &refs).unwrap()
     }
 
     // ── Top-level structure ──────────────────────────────────────────────────
 
     #[test]
     fn test_xml_opens_and_closes_domain() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.starts_with(r#"<domain type="kvm">"#));
         assert!(xml.trim_end().ends_with("</domain>"));
     }
 
     #[test]
     fn test_domain_name_element() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.contains("<name>test-vm</name>"));
     }
 
@@ -201,8 +239,11 @@ mod tests {
 
     #[test]
     fn test_memory_value() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.contains(r#"<memory unit="MiB">2048</memory>"#));
         assert!(xml.contains(r#"<currentMemory unit="MiB">2048</currentMemory>"#));
     }
@@ -211,8 +252,11 @@ mod tests {
 
     #[test]
     fn test_vcpu_value() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.contains(r#"<vcpu placement="static">2</vcpu>"#));
     }
 
@@ -220,44 +264,89 @@ mod tests {
 
     #[test]
     fn test_disk_source_path() {
-        let cfg = bios_config();
-        let xml = generate(
-            &cfg,
+        let xml = gen(
+            &bios_config(),
             "test-vm",
-            &PathBuf::from("/var/lib/libvirt/images/test-vm.qcow2"),
-        )
-        .unwrap();
+            &[PathBuf::from("/var/lib/libvirt/images/test-vm.qcow2")],
+        );
         assert!(xml.contains(r#"<source file="/var/lib/libvirt/images/test-vm.qcow2"/>"#));
     }
 
     #[test]
     fn test_disk_uses_virtio() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.contains(r#"<target dev="vda" bus="virtio"/>"#));
+    }
+
+    #[test]
+    fn test_multiple_disks() {
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[
+                PathBuf::from("/tmp/os.qcow2"),
+                PathBuf::from("/tmp/data.qcow2"),
+            ],
+        );
+        assert!(xml.contains(r#"<source file="/tmp/os.qcow2"/>"#));
+        assert!(xml.contains(r#"<target dev="vda" bus="virtio"/>"#));
+        assert!(xml.contains(r#"<source file="/tmp/data.qcow2"/>"#));
+        assert!(xml.contains(r#"<target dev="vdb" bus="virtio"/>"#));
+        assert_eq!(xml.matches(r#"<disk type="file""#).count(), 2);
+    }
+
+    #[test]
+    fn test_multiple_disks_no_bus_collision() {
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[
+                PathBuf::from("/tmp/os.qcow2"),
+                PathBuf::from("/tmp/data.qcow2"),
+            ],
+        );
+        // Disks at bus 0x04, 0x05; NIC at 0x06; memballoon at 0x07; rng at 0x08
+        assert!(xml.contains(r#"bus="0x04""#)); // disk 1
+        assert!(xml.contains(r#"bus="0x05""#)); // disk 2
+        assert!(xml.contains(r#"bus="0x06""#)); // NIC
+        assert!(xml.contains(r#"bus="0x07""#)); // memballoon
+        assert!(xml.contains(r#"bus="0x08""#)); // rng
     }
 
     // ── Firmware ─────────────────────────────────────────────────────────────
 
     #[test]
     fn test_bios_has_no_ovmf_loader() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(!xml.contains("OVMF_CODE.fd"));
         assert!(!xml.contains("nvram"));
     }
 
     #[test]
     fn test_uefi_has_ovmf_loader() {
-        let cfg = uefi_config();
-        let xml = generate(&cfg, "uefi-vm", &PathBuf::from("/tmp/uefi.qcow2")).unwrap();
+        let xml = gen(
+            &uefi_config(),
+            "uefi-vm",
+            &[PathBuf::from("/tmp/uefi.qcow2")],
+        );
         assert!(xml.contains("/usr/share/OVMF/OVMF_CODE.fd"));
     }
 
     #[test]
     fn test_uefi_nvram_contains_vm_name() {
-        let cfg = uefi_config();
-        let xml = generate(&cfg, "uefi-vm", &PathBuf::from("/tmp/uefi.qcow2")).unwrap();
+        let xml = gen(
+            &uefi_config(),
+            "uefi-vm",
+            &[PathBuf::from("/tmp/uefi.qcow2")],
+        );
         assert!(xml.contains("uefi-vm_VARS.fd"));
     }
 
@@ -265,15 +354,21 @@ mod tests {
 
     #[test]
     fn test_one_nic_produces_one_interface() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert_eq!(xml.matches(r#"<interface type="network">"#).count(), 1);
     }
 
     #[test]
     fn test_two_nics_produce_two_interfaces() {
-        let cfg = uefi_config();
-        let xml = generate(&cfg, "uefi-vm", &PathBuf::from("/tmp/uefi.qcow2")).unwrap();
+        let xml = gen(
+            &uefi_config(),
+            "uefi-vm",
+            &[PathBuf::from("/tmp/uefi.qcow2")],
+        );
         assert_eq!(xml.matches(r#"<interface type="network">"#).count(), 2);
     }
 
@@ -281,14 +376,17 @@ mod tests {
     fn test_zero_nics_defaults_to_one_interface() {
         let mut cfg = bios_config();
         cfg.nic_count = 0;
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(&cfg, "test-vm", &[PathBuf::from("/tmp/test.qcow2")]);
         assert_eq!(xml.matches(r#"<interface type="network">"#).count(), 1);
     }
 
     #[test]
     fn test_interfaces_use_virtio_model() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.contains(r#"<model type="virtio"/>"#));
     }
 
@@ -296,22 +394,31 @@ mod tests {
 
     #[test]
     fn test_spice_graphics_present() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.contains(r#"<graphics type="spice""#));
     }
 
     #[test]
     fn test_machine_type_is_q35() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.contains(r#"machine="q35""#));
     }
 
     #[test]
     fn test_cpu_host_passthrough() {
-        let cfg = bios_config();
-        let xml = generate(&cfg, "test-vm", &PathBuf::from("/tmp/test.qcow2")).unwrap();
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
         assert!(xml.contains(r#"<cpu mode="host-passthrough""#));
     }
 

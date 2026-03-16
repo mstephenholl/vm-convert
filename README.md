@@ -14,7 +14,8 @@ without the final `virsh define` step).
 | Capability | Detail |
 |---|---|
 | Folder-based input | Point at a VM export folder — all required files are auto-discovered |
-| OVF parsing | Extracts name, vCPU, RAM, disk path, NIC count |
+| OVF parsing | Extracts name, vCPU, RAM, disk path(s), NIC count |
+| Multi-disk support | Converts all `.vmdk` disks referenced in the OVF (vda, vdb, …) |
 | File validation | Verifies required `.ovf` and `.vmdk` files are present before conversion |
 | UEFI detection | Automatic — checks for a `.nvram` sidecar file in the folder |
 | Disk conversion | `qemu-img convert -f vmdk -O qcow2` with live progress bar |
@@ -72,8 +73,9 @@ Options:
 # The VM export folder must contain at least a .ovf and .vmdk file:
 #   myvm/
 #   ├── myvm.ovf
-#   ├── myvm.vmdk
-#   └── myvm.nvram   (optional — indicates UEFI)
+#   ├── myvm.vmdk        (primary disk)
+#   ├── myvm_1.vmdk      (optional — additional disks)
+#   └── myvm.nvram       (optional — indicates UEFI)
 
 vm-convert myvm/
 
@@ -104,8 +106,7 @@ vm-convert  ─  VMware OVF/VMDK → QEMU/KVM Converter
   NICs     : 1
 ──────────────────────────────────────────────────────
 Output dir : /var/lib/libvirt/images
-VMDK source: myvm/myvm.vmdk
-QCOW2 dest : /var/lib/libvirt/images/myvm.qcow2
+  myvm.vmdk → myvm.qcow2
 ──────────────────────────────────────────────────────
 [00:01:23] [████████████████████████] 100% | Converting myvm.vmdk → myvm.qcow2
 ✓ Disk converted → /var/lib/libvirt/images/myvm.qcow2
@@ -137,6 +138,18 @@ Install OVMF if not already present:
 
 ```bash
 sudo apt install ovmf
+```
+
+### Multi-disk VMs
+
+When an OVF references multiple `.vmdk` files, all disks are converted and
+included in the generated libvirt XML. Output filenames use the VM name with a
+numeric suffix for secondary disks:
+
+```
+myvm.qcow2     ← first disk  (vda)
+myvm_1.qcow2   ← second disk (vdb)
+myvm_2.qcow2   ← third disk  (vdc)
 ```
 
 ### VirtIO drivers
