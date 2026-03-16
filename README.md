@@ -42,7 +42,85 @@ brew install qemu
 
 ---
 
-## Build
+## Installation
+
+### Download from GitHub Releases
+
+Pre-built binaries are available on the
+[Releases page](https://github.com/mstephenholl/vm-convert/releases).
+
+1. **Download the binary for your platform:**
+
+   **Linux x86_64 (glibc):**
+   ```bash
+   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-unknown-linux-gnu
+   ```
+
+   **Linux x86_64 (musl/static):**
+   ```bash
+   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-unknown-linux-musl
+   ```
+
+   **Linux ARM64:**
+   ```bash
+   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-unknown-linux-gnu
+   ```
+
+   **macOS Intel:**
+   ```bash
+   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-apple-darwin
+   ```
+
+   **macOS Apple Silicon:**
+   ```bash
+   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-apple-darwin
+   ```
+
+2. **Make the binary executable:**
+
+   ```bash
+   chmod +x vm-convert
+   ```
+
+3. **Move it to a directory on your PATH:**
+
+   ```bash
+   sudo mv vm-convert /usr/local/bin/
+   ```
+
+   Verify the installation:
+
+   ```bash
+   vm-convert --version
+   ```
+
+### Updating to the latest version
+
+To update, repeat the download and install steps above — the `latest` URL
+always points to the most recent release. For example on macOS Apple Silicon:
+
+```bash
+curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-apple-darwin
+chmod +x vm-convert
+sudo mv vm-convert /usr/local/bin/
+```
+
+To install a specific version, replace `latest/download` with
+`download/<tag>`:
+
+```bash
+curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/download/v0.2.0/vm-convert-aarch64-apple-darwin
+```
+
+### Removing a previous installation
+
+```bash
+sudo rm /usr/local/bin/vm-convert
+```
+
+---
+
+## Build from source
 
 ```bash
 cargo build --release
