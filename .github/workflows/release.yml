@@ -78,15 +78,20 @@ jobs:
 
       - name: Package binary
         run: |
-          BINARY_NAME="vm-convert-v${{ needs.validate.outputs.version }}-${{ matrix.target }}"
-          cp "target/${{ matrix.target }}/release/vm-convert" "$BINARY_NAME"
-          echo "BINARY_NAME=$BINARY_NAME" >> "$GITHUB_ENV"
+          VERSIONED_NAME="vm-convert-v${{ needs.validate.outputs.version }}-${{ matrix.target }}"
+          UNVERSIONED_NAME="vm-convert-${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/vm-convert" "$VERSIONED_NAME"
+          cp "target/${{ matrix.target }}/release/vm-convert" "$UNVERSIONED_NAME"
+          echo "VERSIONED_NAME=$VERSIONED_NAME" >> "$GITHUB_ENV"
+          echo "UNVERSIONED_NAME=$UNVERSIONED_NAME" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.BINARY_NAME }}
-          path: ${{ env.BINARY_NAME }}
+          name: ${{ env.VERSIONED_NAME }}
+          path: |
+            ${{ env.VERSIONED_NAME }}
+            ${{ env.UNVERSIONED_NAME }}
 
   release:
     name: Create release

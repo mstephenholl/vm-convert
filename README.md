@@ -53,27 +53,27 @@ Pre-built binaries are available on the
 
    **Linux x86_64 (glibc):**
    ```bash
-   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-unknown-linux-gnu
+   curl -fLo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-unknown-linux-gnu
    ```
 
    **Linux x86_64 (musl/static):**
    ```bash
-   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-unknown-linux-musl
+   curl -fLo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-unknown-linux-musl
    ```
 
    **Linux ARM64:**
    ```bash
-   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-unknown-linux-gnu
+   curl -fLo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-unknown-linux-gnu
    ```
 
    **macOS Intel:**
    ```bash
-   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-apple-darwin
+   curl -fLo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-x86_64-apple-darwin
    ```
 
    **macOS Apple Silicon:**
    ```bash
-   curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-apple-darwin
+   curl -fLo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-apple-darwin
    ```
 
 2. **Make the binary executable:**
@@ -100,7 +100,7 @@ To update, repeat the download and install steps above — the `latest` URL
 always points to the most recent release. For example on macOS Apple Silicon:
 
 ```bash
-curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-apple-darwin
+curl -fLo vm-convert https://github.com/mstephenholl/vm-convert/releases/latest/download/vm-convert-aarch64-apple-darwin
 chmod +x vm-convert
 sudo mv vm-convert /usr/local/bin/
 ```
@@ -109,7 +109,7 @@ To install a specific version, replace `latest/download` with
 `download/<tag>`:
 
 ```bash
-curl -Lo vm-convert https://github.com/mstephenholl/vm-convert/releases/download/v0.2.0/vm-convert-aarch64-apple-darwin
+curl -fLo vm-convert https://github.com/mstephenholl/vm-convert/releases/download/v0.2.0/vm-convert-v0.2.0-aarch64-apple-darwin
 ```
 
 ### Removing a previous installation
