@@ -49,7 +49,7 @@ jobs:
             runner: ubuntu-latest
             cross: true
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-latest
             cross: false
           - target: aarch64-apple-darwin
             runner: macos-latest
