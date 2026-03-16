@@ -13,7 +13,7 @@ without the final `virsh define` step).
 
 | Capability | Detail |
 |---|---|
-| Folder-based input | Point at a VM export folder — all required files are auto-discovered |
+| Folder or archive input | Point at a VM export folder or a compressed archive (`.ova`, `.tar.gz`, `.zip`, etc.) |
 | OVF parsing | Extracts name, vCPU, RAM, disk path(s), NIC count |
 | Multi-disk support | Converts all `.vmdk` disks referenced in the OVF (vda, vdb, …) |
 | File validation | Verifies required `.ovf` and `.vmdk` files are present before conversion |
@@ -53,16 +53,21 @@ cargo build --release
 ## Usage
 
 ```
-vm-convert [OPTIONS] <VM_DIR>
+vm-convert [OPTIONS] <INPUT>
 
 Arguments:
-  <VM_DIR>   Path to the folder containing the exported VM (.ovf, .vmdk, .nvram)
+  <INPUT>    Path to a VM export folder (.ovf + disks) or a compressed archive
+             (.ova, .tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz,
+             .tar.zst/.tzst, .zip)
 
 Options:
   -o, --output-dir <DIR>   Output directory [default: same as VM_DIR]
   -n, --name <NAME>        Override VM name from OVF metadata
       --no-import          Generate XML only, skip virsh define
       --format <FORMAT>    Disk format: qcow2 | raw [default: qcow2]
+      --skip-verify        Skip .mf manifest verification
+      --force-virtio       Override all disk bus types to VirtIO
+      --ovmf-code <PATH>   Path to OVMF firmware (overrides auto-detection)
   -h, --help               Print help
   -V, --version            Print version
 ```
@@ -78,6 +83,11 @@ Options:
 #   └── myvm.nvram       (optional — indicates UEFI)
 
 vm-convert myvm/
+
+# Or pass a compressed archive — it will be extracted automatically:
+vm-convert myvm.ova
+vm-convert myvm.tar.gz
+vm-convert myvm.zip
 
 # With explicit output directory and name override:
 vm-convert --output-dir /var/lib/libvirt/images --name prod-server myvm/
@@ -175,9 +185,10 @@ sudo chown libvirt-qemu:libvirt-qemu /var/lib/libvirt/images/myvm.qcow2
 cargo test
 ```
 
-Tests cover folder inventory scanning, OVF parsing, libvirt XML generation,
-progress bar parsing, error paths, and platform detection. No external tools
-(qemu-img, virsh) are required to run the test suite.
+Tests cover archive detection and extraction (all formats), folder inventory
+scanning, OVF parsing, libvirt XML generation, progress bar parsing, error
+paths, and platform detection. No external tools (qemu-img, virsh) are
+required to run the test suite.
 
 ---
 
@@ -226,7 +237,9 @@ git push origin main --tags
 src/
 ├── main.rs          Orchestration / CLI entry point
 ├── cli.rs           clap argument definitions
+├── archive.rs       Archive detection & extraction (OVA, tar.gz, zip, etc.)
 ├── inventory.rs     VM folder scanning & file validation
+├── manifest.rs      Manifest (.mf) parsing & hash verification
 ├── ovf.rs           OVF XML parser (roxmltree)
 ├── convert.rs       qemu-img invocation + live progress bar
 ├── libvirt_xml.rs   libvirt domain XML generator

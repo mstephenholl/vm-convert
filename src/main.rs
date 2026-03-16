@@ -1,9 +1,9 @@
+mod archive;
 mod cli;
 mod convert;
 mod inventory;
 mod libvirt_xml;
 mod manifest;
-mod ova;
 mod ovf;
 mod platform;
 
@@ -22,20 +22,22 @@ fn main() -> Result<()> {
 fn run(args: Args) -> Result<()> {
     banner();
 
-    // ── Step 0: OVA extraction ────────────────────────────────────────────────
-    // If the input is an .ova file, extract it to a temp directory.
-    // Keep _ova_tmp alive so the tempdir isn't dropped until run() returns.
-    let (_ova_tmp, vm_dir): (Option<tempfile::TempDir>, PathBuf) = if ova::is_ova(&args.input) {
-        println!("Extracting OVA archive…");
-        let tmp = tempfile::tempdir().context("Cannot create temporary directory for OVA")?;
-        ova::extract_ova(&args.input, tmp.path())?;
-        println!("✓ OVA extracted to temp dir");
-        divider();
-        let dir = tmp.path().to_path_buf();
-        (Some(tmp), dir)
-    } else {
-        (None, args.input.clone())
-    };
+    // ── Step 0: Archive extraction ──────────────────────────────────────────────
+    // If the input is a recognised archive, extract it to a temp directory.
+    // Keep _archive_tmp alive so the tempdir isn't dropped until run() returns.
+    let (_archive_tmp, vm_dir): (Option<tempfile::TempDir>, PathBuf) =
+        if let Some(format) = archive::detect_format(&args.input) {
+            println!("Extracting {} archive…", format.label());
+            let tmp =
+                tempfile::tempdir().context("Cannot create temporary directory for extraction")?;
+            archive::extract_archive(&args.input, format, tmp.path())?;
+            println!("✓ {} extracted to temp dir", format.label());
+            divider();
+            let dir = tmp.path().to_path_buf();
+            (Some(tmp), dir)
+        } else {
+            (None, args.input.clone())
+        };
 
     // ── Step 1: Scan VM folder ────────────────────────────────────────────────
     let inv = inventory::scan_vm_dir(&vm_dir)?;

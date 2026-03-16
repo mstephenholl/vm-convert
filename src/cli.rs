@@ -12,7 +12,9 @@ use std::path::PathBuf;
     long_about = None
 )]
 pub struct Args {
-    /// Path to a VM export folder (.ovf + disks) or an .ova archive file
+    /// Path to a VM export folder (.ovf + disks) or a compressed archive
+    /// (.ova, .tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz,
+    /// .tar.zst/.tzst, .zip)
     pub input: PathBuf,
 
     /// Output directory for converted .qcow2 and .xml files
