@@ -1,5 +1,6 @@
 mod cli;
 mod convert;
+mod inventory;
 mod libvirt_xml;
 mod ovf;
 mod platform;
@@ -18,19 +19,33 @@ fn main() -> Result<()> {
 fn run(args: Args) -> Result<()> {
     banner();
 
-    // ── Step 1: Locate qemu-img ──────────────────────────────────────────────
+    // ── Step 1: Scan VM folder ────────────────────────────────────────────────
+    let inv = inventory::scan_vm_dir(&args.vm_dir)?;
+    println!("✓ VM folder : {}", args.vm_dir.display());
+    println!(
+        "  .ovf      : {}",
+        inv.ovf_path.file_name().unwrap_or_default().to_string_lossy()
+    );
+    println!(
+        "  .vmdk     : {} file(s)",
+        inv.vmdk_paths.len()
+    );
+    if let Some(ref nvram) = inv.nvram_path {
+        println!(
+            "  .nvram    : {}",
+            nvram.file_name().unwrap_or_default().to_string_lossy()
+        );
+    }
+    divider();
+
+    // ── Step 2: Locate qemu-img ───────────────────────────────────────────────
     let qemu_img = platform::find_qemu_img().inspect_err(|_e| {
         platform::print_prerequisites();
     })?;
     println!("✓ qemu-img  : {}", qemu_img.display());
 
-    // ── Step 2: Validate & parse OVF ─────────────────────────────────────────
-    let ovf_path = &args.ovf_file;
-    if !ovf_path.exists() {
-        anyhow::bail!("OVF file not found: {}", ovf_path.display());
-    }
-
-    let vm_config = ovf::parse_ovf(ovf_path)?;
+    // ── Step 3: Validate & parse OVF ──────────────────────────────────────────
+    let vm_config = ovf::parse_ovf(&inv.ovf_path, inv.has_nvram())?;
     let vm_name = args.name.unwrap_or_else(|| vm_config.name.clone());
 
     println!("✓ OVF parsed");
@@ -49,17 +64,23 @@ fn run(args: Args) -> Result<()> {
     println!("  NICs     : {}", vm_config.nic_count);
     divider();
 
-    // ── Step 3: Resolve paths ────────────────────────────────────────────────
-    let ovf_dir = ovf_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."));
-
-    let output_dir: PathBuf = args.output_dir.unwrap_or_else(|| ovf_dir.to_path_buf());
+    // ── Step 4: Resolve paths ─────────────────────────────────────────────────
+    let vm_dir = &args.vm_dir;
+    let output_dir: PathBuf = args.output_dir.unwrap_or_else(|| vm_dir.to_path_buf());
 
     std::fs::create_dir_all(&output_dir)
         .with_context(|| format!("Cannot create output directory: {}", output_dir.display()))?;
 
-    let vmdk_path = ovf_dir.join(&vm_config.disk_file);
+    // Cross-validate: the VMDK referenced in the OVF must exist in the folder
+    let vmdk_path = vm_dir.join(&vm_config.disk_file);
+    if !vmdk_path.exists() {
+        anyhow::bail!(
+            "OVF references disk '{}' but it was not found in {}",
+            vm_config.disk_file,
+            vm_dir.display()
+        );
+    }
+
     let qcow2_path = output_dir.join(format!("{vm_name}.qcow2"));
     let xml_path = output_dir.join(format!("{vm_name}.xml"));
 
@@ -68,17 +89,17 @@ fn run(args: Args) -> Result<()> {
     println!("QCOW2 dest : {}", qcow2_path.display());
     divider();
 
-    // ── Step 4: Convert disk ─────────────────────────────────────────────────
+    // ── Step 5: Convert disk ──────────────────────────────────────────────────
     convert::convert_disk(&qemu_img, &vmdk_path, &qcow2_path, &args.format)?;
     println!("✓ Disk converted → {}", qcow2_path.display());
 
-    // ── Step 5: Generate libvirt XML ─────────────────────────────────────────
+    // ── Step 6: Generate libvirt XML ──────────────────────────────────────────
     let xml = libvirt_xml::generate(&vm_config, &vm_name, &qcow2_path)?;
     std::fs::write(&xml_path, &xml)
         .with_context(|| format!("Cannot write XML: {}", xml_path.display()))?;
     println!("✓ Libvirt XML → {}", xml_path.display());
 
-    // ── Step 6: Optionally import to libvirt ─────────────────────────────────
+    // ── Step 7: Optionally import to libvirt ──────────────────────────────────
     if args.no_import {
         divider();
         println!("Skipped libvirt import (--no-import).");

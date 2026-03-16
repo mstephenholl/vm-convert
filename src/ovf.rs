@@ -31,13 +31,11 @@ pub struct VmConfig {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/// Parse an OVF file on disk.  Detects UEFI by checking for a .nvram sidecar.
-pub fn parse_ovf(ovf_path: &Path) -> Result<VmConfig> {
+/// Parse an OVF file on disk.  The `uefi` flag indicates whether an `.nvram`
+/// sidecar was found in the VM folder (determined by inventory scanning).
+pub fn parse_ovf(ovf_path: &Path, uefi: bool) -> Result<VmConfig> {
     let content = std::fs::read_to_string(ovf_path)
         .with_context(|| format!("Cannot read OVF file: {}", ovf_path.display()))?;
-
-    let nvram_path = ovf_path.with_extension("nvram");
-    let uefi = nvram_path.exists();
 
     parse_ovf_str(&content, uefi)
 }

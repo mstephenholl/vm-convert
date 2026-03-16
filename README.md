@@ -13,8 +13,10 @@ without the final `virsh define` step).
 
 | Capability | Detail |
 |---|---|
+| Folder-based input | Point at a VM export folder — all required files are auto-discovered |
 | OVF parsing | Extracts name, vCPU, RAM, disk path, NIC count |
-| UEFI detection | Automatic — checks for a `.nvram` sidecar file |
+| File validation | Verifies required `.ovf` and `.vmdk` files are present before conversion |
+| UEFI detection | Automatic — checks for a `.nvram` sidecar file in the folder |
 | Disk conversion | `qemu-img convert -f vmdk -O qcow2` with live progress bar |
 | Libvirt XML | Generates a complete `<domain>` definition (q35 + VirtIO + SPICE) |
 | Auto-import | Runs `virsh define` on Linux when conversion is complete |
@@ -50,13 +52,13 @@ cargo build --release
 ## Usage
 
 ```
-vm-convert [OPTIONS] <OVF_FILE>
+vm-convert [OPTIONS] <VM_DIR>
 
 Arguments:
-  <OVF_FILE>   Path to the .ovf file (the .vmdk must be in the same directory)
+  <VM_DIR>   Path to the folder containing the exported VM (.ovf, .vmdk, .nvram)
 
 Options:
-  -o, --output-dir <DIR>   Output directory [default: same as .ovf]
+  -o, --output-dir <DIR>   Output directory [default: same as VM_DIR]
   -n, --name <NAME>        Override VM name from OVF metadata
       --no-import          Generate XML only, skip virsh define
       --format <FORMAT>    Disk format: qcow2 | raw [default: qcow2]
@@ -67,22 +69,30 @@ Options:
 ### Typical run
 
 ```bash
-# All three source files must be in the same directory:
-#   myvm.ovf   myvm.vmdk   myvm.nvram  (nvram = UEFI)
+# The VM export folder must contain at least a .ovf and .vmdk file:
+#   myvm/
+#   ├── myvm.ovf
+#   ├── myvm.vmdk
+#   └── myvm.nvram   (optional — indicates UEFI)
 
-vm-convert myvm.ovf
+vm-convert myvm/
 
 # With explicit output directory and name override:
-vm-convert --output-dir /var/lib/libvirt/images --name prod-server myvm.ovf
+vm-convert --output-dir /var/lib/libvirt/images --name prod-server myvm/
 
 # Generate XML + QCOW2 without auto-importing (useful on macOS or for review):
-vm-convert --no-import myvm.ovf
+vm-convert --no-import myvm/
 ```
 
 ### Typical output
 
 ```
 vm-convert  ─  VMware OVF/VMDK → QEMU/KVM Converter
+──────────────────────────────────────────────────────
+✓ VM folder : myvm/
+  .ovf      : myvm.ovf
+  .vmdk     : 1 file(s)
+  .nvram    : myvm.nvram
 ──────────────────────────────────────────────────────
 ✓ qemu-img  : /usr/bin/qemu-img
 ✓ OVF parsed
@@ -94,7 +104,7 @@ vm-convert  ─  VMware OVF/VMDK → QEMU/KVM Converter
   NICs     : 1
 ──────────────────────────────────────────────────────
 Output dir : /var/lib/libvirt/images
-VMDK source: /tmp/export/myvm.vmdk
+VMDK source: myvm/myvm.vmdk
 QCOW2 dest : /var/lib/libvirt/images/myvm.qcow2
 ──────────────────────────────────────────────────────
 [00:01:23] [████████████████████████] 100% | Converting myvm.vmdk → myvm.qcow2
@@ -152,9 +162,9 @@ sudo chown libvirt-qemu:libvirt-qemu /var/lib/libvirt/images/myvm.qcow2
 cargo test
 ```
 
-Tests cover OVF parsing, libvirt XML generation, progress bar parsing,
-error paths, and platform detection. No external tools (qemu-img, virsh)
-are required to run the test suite.
+Tests cover folder inventory scanning, OVF parsing, libvirt XML generation,
+progress bar parsing, error paths, and platform detection. No external tools
+(qemu-img, virsh) are required to run the test suite.
 
 ---
 
@@ -203,6 +213,7 @@ git push origin main --tags
 src/
 ├── main.rs          Orchestration / CLI entry point
 ├── cli.rs           clap argument definitions
+├── inventory.rs     VM folder scanning & file validation
 ├── ovf.rs           OVF XML parser (roxmltree)
 ├── convert.rs       qemu-img invocation + live progress bar
 ├── libvirt_xml.rs   libvirt domain XML generator
