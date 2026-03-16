@@ -19,6 +19,7 @@ without the final `virsh define` step).
 | File validation | Verifies required `.ovf` and `.vmdk` files are present before conversion |
 | UEFI detection | Automatic — checks for a `.nvram` sidecar file in the folder |
 | Disk conversion | `qemu-img convert -f vmdk -O qcow2` with live progress bar |
+| Compression | Optional `--compress` / `-c` flag for smaller qcow2 output |
 | Libvirt XML | Generates a complete `<domain>` definition (q35 + VirtIO + SPICE) |
 | Auto-import | Runs `virsh define` on Linux when conversion is complete |
 | macOS support | Produces artefacts only; manual transfer + import required |
@@ -64,6 +65,7 @@ Options:
   -o, --output-dir <DIR>   Output directory [default: same as VM_DIR]
   -n, --name <NAME>        Override VM name from OVF metadata
       --no-import          Generate XML only, skip virsh define
+  -c, --compress           Compress output qcow2 images (smaller files)
       --format <FORMAT>    Disk format: qcow2 | raw [default: qcow2]
       --skip-verify        Skip .mf manifest verification
       --force-virtio       Override all disk bus types to VirtIO
@@ -91,6 +93,9 @@ vm-convert myvm.zip
 
 # With explicit output directory and name override:
 vm-convert --output-dir /var/lib/libvirt/images --name prod-server myvm/
+
+# Compress qcow2 output (recommended when source VMDKs are streamOptimized):
+vm-convert --compress myvm/
 
 # Generate XML + QCOW2 without auto-importing (useful on macOS or for review):
 vm-convert --no-import myvm/

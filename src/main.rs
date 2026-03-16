@@ -169,6 +169,7 @@ fn run(args: Args) -> Result<()> {
             qcow2_path,
             input_format,
             &args.format,
+            args.compress,
         )?;
         println!("✓ Disk converted → {}", qcow2_path.display());
     }

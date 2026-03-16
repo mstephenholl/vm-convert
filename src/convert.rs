@@ -25,6 +25,7 @@ pub fn convert_disk(
     output_path: &Path,
     input_format: &str,
     output_format: &str,
+    compress: bool,
 ) -> Result<()> {
     if !input_path.exists() {
         anyhow::bail!(
@@ -51,17 +52,15 @@ pub fn convert_disk(
         .to_str()
         .context("Output path contains non-UTF-8 characters")?;
 
+    let mut qemu_args = vec!["convert", "-p", "-f", input_format, "-O", output_format];
+    if compress {
+        qemu_args.push("-c");
+    }
+    qemu_args.push(input_str);
+    qemu_args.push(out_str);
+
     let mut child = Command::new(qemu_img_path)
-        .args([
-            "convert",
-            "-p",
-            "-f",
-            input_format,
-            "-O",
-            output_format,
-            input_str,
-            out_str,
-        ])
+        .args(&qemu_args)
         .stderr(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
@@ -214,7 +213,7 @@ mod tests {
         let input = dir.path().join("nonexistent.vmdk");
         let out = dir.path().join("out.qcow2");
 
-        let err = convert_disk(&qemu_img, &input, &out, "vmdk", "qcow2")
+        let err = convert_disk(&qemu_img, &input, &out, "vmdk", "qcow2", false)
             .unwrap_err()
             .to_string();
 
@@ -234,7 +233,7 @@ mod tests {
         let out = dir.path().join("out.qcow2");
         let fake_qemu = PathBuf::from("/definitely/not/a/real/binary");
 
-        let result = convert_disk(&fake_qemu, &input, &out, "vmdk", "qcow2");
+        let result = convert_disk(&fake_qemu, &input, &out, "vmdk", "qcow2", false);
         assert!(result.is_err());
     }
 

@@ -44,6 +44,11 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub force_virtio: bool,
 
+    /// Compress output qcow2 disk images (reduces file size, especially
+    /// when converting from compressed VMDK formats)
+    #[arg(short = 'c', long)]
+    pub compress: bool,
+
     /// Path to the OVMF firmware code file (overrides auto-detection)
     #[arg(long, value_name = "PATH")]
     pub ovmf_code: Option<PathBuf>,
@@ -110,6 +115,24 @@ mod tests {
             args.ovmf_code.as_deref(),
             Some(std::path::Path::new("/custom/OVMF_CODE.fd"))
         );
+    }
+
+    #[test]
+    fn test_compress_flag() {
+        let args = Args::parse_from(["vm-convert", "--compress", "/tmp/myvm"]);
+        assert!(args.compress);
+    }
+
+    #[test]
+    fn test_compress_short_flag() {
+        let args = Args::parse_from(["vm-convert", "-c", "/tmp/myvm"]);
+        assert!(args.compress);
+    }
+
+    #[test]
+    fn test_compress_default_false() {
+        let args = Args::parse_from(["vm-convert", "/tmp/myvm"]);
+        assert!(!args.compress);
     }
 
     #[test]
