@@ -6,6 +6,8 @@
 ///  - Bus type per disk from OVF controller mapping (VirtIO, SCSI, SATA, IDE)
 ///  - SPICE graphics + QXL video — works with virt-viewer and virt-manager
 ///  - OVMF (UEFI) paths: CLI override → auto-detect → Ubuntu fallback
+///  - PCI addresses omitted for dynamic devices — libvirt auto-assigns them
+///    and creates PCIe root ports as needed on the q35 bus topology
 use crate::ovf::{DiskBus, NicDef, VmConfig};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -34,32 +36,20 @@ pub fn generate(
 ) -> Result<String> {
     let os_block = build_os_block(config, vm_name, nvram_path, ovmf_code_path);
 
-    // PCI bus allocator: buses 0x00–0x03 are reserved.
-    let mut next_bus: u32 = 0x04;
-
     // Check if any disk uses SCSI bus (need a controller)
     let needs_scsi = !force_virtio && config.disks.iter().any(|d| d.bus == DiskBus::Scsi);
 
-    let disks = build_disk_devices(config, qcow2_paths, &mut next_bus, force_virtio)?;
-    let cdroms = build_cdrom_devices(iso_paths, &mut next_bus)?;
-    let networks = build_network_interfaces(&config.nics, &mut next_bus);
+    let disks = build_disk_devices(config, qcow2_paths, force_virtio)?;
+    let cdroms = build_cdrom_devices(iso_paths)?;
+    let networks = build_network_interfaces(&config.nics);
 
     let scsi_controller = if needs_scsi {
-        let bus = next_bus;
-        next_bus += 1;
-        format!(
-            r#"    <controller type="scsi" index="0" model="virtio-scsi">
-      <address type="pci" domain="0x0000" bus="0x{bus:02x}" slot="0x00" function="0x0"/>
-    </controller>
+        r#"    <controller type="scsi" index="0" model="virtio-scsi"/>
 "#
-        )
+        .to_string()
     } else {
         String::new()
     };
-
-    let memballoon_bus = next_bus;
-    next_bus += 1;
-    let rng_bus = next_bus;
 
     let xml = format!(
         r#"<domain type="kvm">
@@ -89,9 +79,7 @@ pub fn generate(
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
 {disks}
-{cdroms}{scsi_controller}    <controller type="virtio-serial" index="0">
-      <address type="pci" domain="0x0000" bus="0x03" slot="0x00" function="0x0"/>
-    </controller>
+{cdroms}{scsi_controller}    <controller type="virtio-serial" index="0"/>
 {networks}
     <serial type="pty">
       <target type="isa-serial" port="0">
@@ -103,28 +91,19 @@ pub fn generate(
     </console>
     <channel type="unix">
       <target type="virtio" name="org.qemu.guest_agent.0"/>
-      <address type="virtio-serial" controller="0" bus="0" port="1"/>
     </channel>
-    <input type="tablet" bus="usb">
-      <address type="usb" bus="0" port="1"/>
-    </input>
+    <input type="tablet" bus="usb"/>
     <graphics type="spice" autoport="yes">
       <listen type="address"/>
       <image compression="off"/>
     </graphics>
-    <sound model="ich9">
-      <address type="pci" domain="0x0000" bus="0x00" slot="0x1b" function="0x0"/>
-    </sound>
+    <sound model="ich9"/>
     <video>
       <model type="qxl" ram="65536" vram="65536" vgamem="16384" heads="1" primary="yes"/>
-      <address type="pci" domain="0x0000" bus="0x00" slot="0x01" function="0x0"/>
     </video>
-    <memballoon model="virtio">
-      <address type="pci" domain="0x0000" bus="0x{memballoon_bus:02x}" slot="0x00" function="0x0"/>
-    </memballoon>
+    <memballoon model="virtio"/>
     <rng model="virtio">
       <backend model="random">/dev/urandom</backend>
-      <address type="pci" domain="0x0000" bus="0x{rng_bus:02x}" slot="0x00" function="0x0"/>
     </rng>
   </devices>
 </domain>
@@ -137,8 +116,6 @@ pub fn generate(
         cdroms = cdroms,
         scsi_controller = scsi_controller,
         networks = networks,
-        memballoon_bus = memballoon_bus,
-        rng_bus = rng_bus,
     );
 
     Ok(xml)
@@ -181,7 +158,6 @@ fn build_os_block(
 fn build_disk_devices(
     config: &VmConfig,
     qcow2_paths: &[&PathBuf],
-    next_bus: &mut u32,
     force_virtio: bool,
 ) -> Result<String> {
     // Track per-bus device letter counters
@@ -226,14 +202,11 @@ fn build_disk_devices(
             }
         };
 
-        let pci_bus = *next_bus;
-        *next_bus += 1;
         blocks.push(format!(
             r#"    <disk type="file" device="disk">
       <driver name="qemu" type="qcow2" discard="unmap"/>
       <source file="{path_str}"/>
       <target dev="{dev_name}" bus="{bus_str}"/>
-      <address type="pci" domain="0x0000" bus="0x{pci_bus:02x}" slot="0x00" function="0x0"/>
     </disk>"#
         ));
     }
@@ -241,13 +214,11 @@ fn build_disk_devices(
 }
 
 /// Generate `<disk device="cdrom">` elements for ISO files.
-fn build_cdrom_devices(iso_paths: &[PathBuf], next_bus: &mut u32) -> Result<String> {
+fn build_cdrom_devices(iso_paths: &[PathBuf]) -> Result<String> {
     if iso_paths.is_empty() {
         return Ok(String::new());
     }
 
-    // CD-ROMs get sequential sd* names starting after any SCSI/SATA disks
-    // Use a high-ish starting letter to avoid collisions
     let mut blocks = Vec::new();
     for (i, path) in iso_paths.iter().enumerate() {
         let path_str = path
@@ -256,15 +227,12 @@ fn build_cdrom_devices(iso_paths: &[PathBuf], next_bus: &mut u32) -> Result<Stri
 
         // Use sr0, sr1, ... for CD-ROM device names
         let dev_name = format!("sr{i}");
-        let pci_bus = *next_bus;
-        *next_bus += 1;
         blocks.push(format!(
             r#"    <disk type="file" device="cdrom">
       <driver name="qemu" type="raw"/>
       <source file="{path_str}"/>
       <target dev="{dev_name}" bus="sata"/>
       <readonly/>
-      <address type="pci" domain="0x0000" bus="0x{pci_bus:02x}" slot="0x00" function="0x0"/>
     </disk>"#
         ));
     }
@@ -272,7 +240,7 @@ fn build_cdrom_devices(iso_paths: &[PathBuf], next_bus: &mut u32) -> Result<Stri
 }
 
 /// Generate `<interface>` elements. Always emit at least one NIC.
-fn build_network_interfaces(nics: &[NicDef], next_bus: &mut u32) -> String {
+fn build_network_interfaces(nics: &[NicDef]) -> String {
     let effective_nics: Vec<&NicDef> = if nics.is_empty() {
         // Default to one NIC with no MAC
         vec![]
@@ -288,9 +256,6 @@ fn build_network_interfaces(nics: &[NicDef], next_bus: &mut u32) -> String {
 
     (0..count)
         .map(|i| {
-            let bus = *next_bus;
-            *next_bus += 1;
-
             let mac_line = effective_nics
                 .get(i)
                 .and_then(|nic| nic.mac_address.as_deref())
@@ -301,7 +266,6 @@ fn build_network_interfaces(nics: &[NicDef], next_bus: &mut u32) -> String {
                 r#"    <interface type="network">{mac_line}
       <source network="default"/>
       <model type="virtio"/>
-      <address type="pci" domain="0x0000" bus="0x{bus:02x}" slot="0x00" function="0x0"/>
     </interface>"#
             )
         })
@@ -447,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_disks_no_bus_collision() {
+    fn test_multiple_disks_no_explicit_pci_address() {
         let mut cfg = bios_config();
         cfg.disks.push(DiskRef {
             href: "data.vmdk".into(),
@@ -460,11 +424,16 @@ mod tests {
         ];
         let refs: Vec<&PathBuf> = paths.iter().collect();
         let xml = generate(&cfg, "test-vm", &refs, None, None, &[], false).unwrap();
-        assert!(xml.contains(r#"bus="0x04""#));
-        assert!(xml.contains(r#"bus="0x05""#));
-        assert!(xml.contains(r#"bus="0x06""#));
-        assert!(xml.contains(r#"bus="0x07""#));
-        assert!(xml.contains(r#"bus="0x08""#));
+        // Disk elements should not contain explicit PCI addresses (libvirt auto-assigns)
+        let disk_sections: Vec<&str> = xml.split("<disk ").skip(1).collect();
+        for section in disk_sections {
+            let disk_end = section.find("</disk>").unwrap_or(section.len());
+            let disk_block = &section[..disk_end];
+            assert!(
+                !disk_block.contains(r#"address type="pci""#),
+                "Disk should not have an explicit PCI address"
+            );
+        }
     }
 
     // ── Firmware ────────────────────────────────────────────────────────────
@@ -594,7 +563,7 @@ mod tests {
         let xml = generate(&cfg, "test-vm", &refs, None, None, &[], false).unwrap();
         assert!(xml.contains(r#"bus="scsi""#));
         assert!(xml.contains(r#"dev="sda""#));
-        assert!(xml.contains(r#"<controller type="scsi" index="0" model="virtio-scsi">"#));
+        assert!(xml.contains(r#"<controller type="scsi" index="0" model="virtio-scsi"/>"#));
     }
 
     #[test]
