@@ -1,6 +1,6 @@
 [package]
 name = "vm-convert"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 rust-version = "1.94"
 description = "Convert VMware OVF/VMDK images to QEMU/KVM (libvirt) format"
