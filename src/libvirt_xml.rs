@@ -12,8 +12,8 @@ use crate::ovf::{DiskBus, NicDef, VmConfig};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-/// Default OVMF code path (Ubuntu/Debian packaging).
-const DEFAULT_OVMF_CODE: &str = "/usr/share/OVMF/OVMF_CODE.fd";
+/// Default OVMF code path (Ubuntu 24.04+ / Debian packaging).
+const DEFAULT_OVMF_CODE: &str = "/usr/share/OVMF/OVMF_CODE_4M.fd";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -456,7 +456,7 @@ mod tests {
             "uefi-vm",
             &[PathBuf::from("/tmp/uefi.qcow2")],
         );
-        assert!(xml.contains("/usr/share/OVMF/OVMF_CODE.fd"));
+        assert!(xml.contains("/usr/share/OVMF/OVMF_CODE_4M.fd"));
     }
 
     #[test]
@@ -487,7 +487,7 @@ mod tests {
         let ovmf = Path::new("/custom/OVMF_CODE.fd");
         let xml = generate(&cfg, "uefi-vm", &refs, None, Some(ovmf), &[], false).unwrap();
         assert!(xml.contains("/custom/OVMF_CODE.fd"));
-        assert!(!xml.contains("/usr/share/OVMF/OVMF_CODE.fd"));
+        assert!(!xml.contains("/usr/share/OVMF/OVMF_CODE_4M.fd"));
     }
 
     // ── Networking ──────────────────────────────────────────────────────────

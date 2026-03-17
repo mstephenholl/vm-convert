@@ -24,7 +24,9 @@ impl std::fmt::Display for Platform {
 
 /// Known OVMF firmware code paths, probed in order.
 const OVMF_SEARCH_PATHS: &[&str] = &[
-    // Ubuntu / Debian
+    // Ubuntu 24.04+ / Debian (4M variant, current default)
+    "/usr/share/OVMF/OVMF_CODE_4M.fd",
+    // Ubuntu / Debian (legacy 2M variant)
     "/usr/share/OVMF/OVMF_CODE.fd",
     // Fedora
     "/usr/share/edk2/ovmf/OVMF_CODE.fd",

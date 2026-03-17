@@ -229,7 +229,7 @@ Next steps:
 The generated XML references Ubuntu's OVMF paths:
 
 ```
-/usr/share/OVMF/OVMF_CODE.fd   ← firmware (read-only)
+/usr/share/OVMF/OVMF_CODE_4M.fd   ← firmware (read-only)
 /var/lib/libvirt/qemu/nvram/<name>_VARS.fd  ← mutable NVRAM
 ```
 
