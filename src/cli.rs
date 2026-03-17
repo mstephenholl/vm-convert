@@ -49,6 +49,20 @@ pub struct Args {
     #[arg(short = 'c', long)]
     pub compress: bool,
 
+    /// Enable out-of-order writes for faster conversion (qemu-img -W)
+    #[arg(short = 'W', long)]
+    pub parallel_writes: bool,
+
+    /// Number of parallel coroutines for conversion (qemu-img -m)
+    #[arg(short = 'm', long, value_name = "N")]
+    pub coroutines: Option<u32>,
+
+    /// Target cache mode for conversion (qemu-img -t)
+    /// [none | writeback | writethrough | unsafe]
+    #[arg(short = 't', long, value_name = "MODE",
+          value_parser = ["none", "writeback", "writethrough", "unsafe"])]
+    pub target_cache: Option<String>,
+
     /// Path to the OVMF firmware code file (overrides auto-detection)
     #[arg(long, value_name = "PATH")]
     pub ovmf_code: Option<PathBuf>,
@@ -139,5 +153,53 @@ mod tests {
     fn test_input_accepts_ova_path() {
         let args = Args::parse_from(["vm-convert", "/tmp/myvm.ova"]);
         assert_eq!(args.input, PathBuf::from("/tmp/myvm.ova"));
+    }
+
+    #[test]
+    fn test_parallel_writes_flag() {
+        let args = Args::parse_from(["vm-convert", "-W", "/tmp/myvm"]);
+        assert!(args.parallel_writes);
+    }
+
+    #[test]
+    fn test_parallel_writes_long_flag() {
+        let args = Args::parse_from(["vm-convert", "--parallel-writes", "/tmp/myvm"]);
+        assert!(args.parallel_writes);
+    }
+
+    #[test]
+    fn test_parallel_writes_default_false() {
+        let args = Args::parse_from(["vm-convert", "/tmp/myvm"]);
+        assert!(!args.parallel_writes);
+    }
+
+    #[test]
+    fn test_coroutines_flag() {
+        let args = Args::parse_from(["vm-convert", "-m", "16", "/tmp/myvm"]);
+        assert_eq!(args.coroutines, Some(16));
+    }
+
+    #[test]
+    fn test_coroutines_default_none() {
+        let args = Args::parse_from(["vm-convert", "/tmp/myvm"]);
+        assert!(args.coroutines.is_none());
+    }
+
+    #[test]
+    fn test_target_cache_flag() {
+        let args = Args::parse_from(["vm-convert", "-t", "none", "/tmp/myvm"]);
+        assert_eq!(args.target_cache.as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn test_target_cache_writeback() {
+        let args = Args::parse_from(["vm-convert", "--target-cache", "writeback", "/tmp/myvm"]);
+        assert_eq!(args.target_cache.as_deref(), Some("writeback"));
+    }
+
+    #[test]
+    fn test_target_cache_default_none() {
+        let args = Args::parse_from(["vm-convert", "/tmp/myvm"]);
+        assert!(args.target_cache.is_none());
     }
 }

@@ -16,6 +16,14 @@ use std::time::Duration;
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+/// Performance tuning options passed through to `qemu-img convert`.
+pub struct ConvertOptions<'a> {
+    pub compress: bool,
+    pub parallel_writes: bool,
+    pub coroutines: Option<u32>,
+    pub target_cache: Option<&'a str>,
+}
+
 /// Convert a disk image to a QEMU disk image of the given output `format`.
 ///
 /// `input_format` — qemu-img input format string (e.g. "vmdk", "vpc", "vdi")
@@ -25,7 +33,7 @@ pub fn convert_disk(
     output_path: &Path,
     input_format: &str,
     output_format: &str,
-    compress: bool,
+    opts: &ConvertOptions<'_>,
 ) -> Result<()> {
     if !input_path.exists() {
         anyhow::bail!(
@@ -53,8 +61,20 @@ pub fn convert_disk(
         .context("Output path contains non-UTF-8 characters")?;
 
     let mut qemu_args = vec!["convert", "-p", "-f", input_format, "-O", output_format];
-    if compress {
+    if opts.compress {
         qemu_args.push("-c");
+    }
+    if opts.parallel_writes {
+        qemu_args.push("-W");
+    }
+    let coroutines_str = opts.coroutines.map(|n| n.to_string());
+    if let Some(ref n) = coroutines_str {
+        qemu_args.push("-m");
+        qemu_args.push(n);
+    }
+    if let Some(mode) = opts.target_cache {
+        qemu_args.push("-t");
+        qemu_args.push(mode);
     }
     qemu_args.push(input_str);
     qemu_args.push(out_str);
@@ -206,6 +226,15 @@ mod tests {
 
     // ── convert_disk error paths ─────────────────────────────────────────────
 
+    fn default_opts() -> ConvertOptions<'static> {
+        ConvertOptions {
+            compress: false,
+            parallel_writes: false,
+            coroutines: None,
+            target_cache: None,
+        }
+    }
+
     #[test]
     fn test_convert_fails_when_disk_missing() {
         let dir = tempdir().unwrap();
@@ -213,7 +242,7 @@ mod tests {
         let input = dir.path().join("nonexistent.vmdk");
         let out = dir.path().join("out.qcow2");
 
-        let err = convert_disk(&qemu_img, &input, &out, "vmdk", "qcow2", false)
+        let err = convert_disk(&qemu_img, &input, &out, "vmdk", "qcow2", &default_opts())
             .unwrap_err()
             .to_string();
 
@@ -233,7 +262,7 @@ mod tests {
         let out = dir.path().join("out.qcow2");
         let fake_qemu = PathBuf::from("/definitely/not/a/real/binary");
 
-        let result = convert_disk(&fake_qemu, &input, &out, "vmdk", "qcow2", false);
+        let result = convert_disk(&fake_qemu, &input, &out, "vmdk", "qcow2", &default_opts());
         assert!(result.is_err());
     }
 

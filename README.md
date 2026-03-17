@@ -144,6 +144,9 @@ Options:
   -n, --name <NAME>        Override VM name from OVF metadata
       --no-import          Generate XML only, skip virsh define
   -c, --compress           Compress output qcow2 images (smaller files)
+  -W, --parallel-writes    Out-of-order writes for faster conversion
+  -m, --coroutines <N>     Parallel coroutines for conversion [default: qemu-img default]
+  -t, --target-cache <MODE> Target cache mode [none | writeback | writethrough | unsafe]
       --format <FORMAT>    Disk format: qcow2 | raw [default: qcow2]
       --skip-verify        Skip .mf manifest verification
       --force-virtio       Override all disk bus types to VirtIO
@@ -174,6 +177,9 @@ vm-convert --output-dir /var/lib/libvirt/images --name prod-server myvm/
 
 # Compress qcow2 output (recommended when source VMDKs are streamOptimized):
 vm-convert --compress myvm/
+
+# Fast conversion: out-of-order writes + 16 coroutines + direct I/O:
+vm-convert -W -m 16 -t none myvm/
 
 # Generate XML + QCOW2 without auto-importing (useful on macOS or for review):
 vm-convert --no-import myvm/

@@ -162,6 +162,12 @@ fn run(args: Args) -> Result<()> {
     divider();
 
     // ── Step 5: Convert disks ─────────────────────────────────────────────────
+    let convert_opts = convert::ConvertOptions {
+        compress: args.compress,
+        parallel_writes: args.parallel_writes,
+        coroutines: args.coroutines,
+        target_cache: args.target_cache.as_deref(),
+    };
     for (input_path, qcow2_path, input_format) in &disk_pairs {
         convert::convert_disk(
             &qemu_img,
@@ -169,7 +175,7 @@ fn run(args: Args) -> Result<()> {
             qcow2_path,
             input_format,
             &args.format,
-            args.compress,
+            &convert_opts,
         )?;
         println!("✓ Disk converted → {}", qcow2_path.display());
     }
