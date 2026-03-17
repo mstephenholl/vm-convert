@@ -230,7 +230,10 @@ fn run(args: Args) -> Result<()> {
         nvram_output_path.as_deref(),
         ovmf_code_path.as_deref(),
         &iso_output_paths,
-        args.force_virtio,
+        &libvirt_xml::GenerateOptions {
+            force_virtio: args.force_virtio,
+            usb_passthrough: !args.no_usb,
+        },
     )?;
     std::fs::write(&xml_path, &xml)
         .with_context(|| format!("Cannot write XML: {}", xml_path.display()))?;

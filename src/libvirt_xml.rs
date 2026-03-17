@@ -17,6 +17,14 @@ const DEFAULT_OVMF_CODE: &str = "/usr/share/OVMF/OVMF_CODE_4M.fd";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+/// Options that control libvirt XML generation behaviour.
+pub struct GenerateOptions {
+    /// Override all disk bus types to VirtIO (ignore OVF controller mappings).
+    pub force_virtio: bool,
+    /// Include a qemu-xhci USB 3.0 controller and SPICE USB redirection channels.
+    pub usb_passthrough: bool,
+}
+
 /// Generate a libvirt domain XML string for the given VM.
 ///
 /// * `vm_name`        — the domain name (may differ from config.name via --name flag)
@@ -24,7 +32,7 @@ const DEFAULT_OVMF_CODE: &str = "/usr/share/OVMF/OVMF_CODE_4M.fd";
 /// * `nvram_path`     — path to the NVRAM file (copied to output dir), or None for default
 /// * `ovmf_code_path` — path to the OVMF_CODE firmware, or None for default
 /// * `iso_paths`      — paths to ISO files for CD-ROM passthrough
-/// * `force_virtio`   — override all disk bus types to VirtIO
+/// * `opts`           — additional generation options (force_virtio, usb_passthrough)
 pub fn generate(
     config: &VmConfig,
     vm_name: &str,
@@ -32,19 +40,31 @@ pub fn generate(
     nvram_path: Option<&Path>,
     ovmf_code_path: Option<&Path>,
     iso_paths: &[PathBuf],
-    force_virtio: bool,
+    opts: &GenerateOptions,
 ) -> Result<String> {
     let os_block = build_os_block(config, vm_name, nvram_path, ovmf_code_path);
 
     // Check if any disk uses SCSI bus (need a controller)
-    let needs_scsi = !force_virtio && config.disks.iter().any(|d| d.bus == DiskBus::Scsi);
+    let needs_scsi = !opts.force_virtio && config.disks.iter().any(|d| d.bus == DiskBus::Scsi);
 
-    let disks = build_disk_devices(config, qcow2_paths, force_virtio)?;
+    let disks = build_disk_devices(config, qcow2_paths, opts.force_virtio)?;
     let cdroms = build_cdrom_devices(iso_paths)?;
     let networks = build_network_interfaces(&config.nics);
 
     let scsi_controller = if needs_scsi {
         r#"    <controller type="scsi" index="0" model="virtio-scsi"/>
+"#
+        .to_string()
+    } else {
+        String::new()
+    };
+
+    let usb_block = if opts.usb_passthrough {
+        r#"    <controller type="usb" index="0" model="qemu-xhci"/>
+    <redirdev bus="usb" type="spicevmc"/>
+    <redirdev bus="usb" type="spicevmc"/>
+    <redirdev bus="usb" type="spicevmc"/>
+    <redirdev bus="usb" type="spicevmc"/>
 "#
         .to_string()
     } else {
@@ -79,7 +99,7 @@ pub fn generate(
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
 {disks}
-{cdroms}{scsi_controller}    <controller type="virtio-serial" index="0"/>
+{cdroms}{scsi_controller}{usb_block}    <controller type="virtio-serial" index="0"/>
 {networks}
     <serial type="pty">
       <target type="isa-serial" port="0">
@@ -115,6 +135,7 @@ pub fn generate(
         disks = disks,
         cdroms = cdroms,
         scsi_controller = scsi_controller,
+        usb_block = usb_block,
         networks = networks,
     );
 
@@ -314,9 +335,16 @@ mod tests {
         }
     }
 
+    fn default_opts() -> GenerateOptions {
+        GenerateOptions {
+            force_virtio: false,
+            usb_passthrough: true,
+        }
+    }
+
     fn gen(cfg: &VmConfig, name: &str, paths: &[PathBuf]) -> String {
         let refs: Vec<&PathBuf> = paths.iter().collect();
-        generate(cfg, name, &refs, None, None, &[], false).unwrap()
+        generate(cfg, name, &refs, None, None, &[], &default_opts()).unwrap()
     }
 
     // ── Top-level structure ──────────────────────────────────────────────────
@@ -402,7 +430,7 @@ mod tests {
             PathBuf::from("/tmp/data.qcow2"),
         ];
         let refs: Vec<&PathBuf> = paths.iter().collect();
-        let xml = generate(&cfg, "test-vm", &refs, None, None, &[], false).unwrap();
+        let xml = generate(&cfg, "test-vm", &refs, None, None, &[], &default_opts()).unwrap();
         assert!(xml.contains(r#"<source file="/tmp/os.qcow2"/>"#));
         assert!(xml.contains(r#"<target dev="vda" bus="virtio"/>"#));
         assert!(xml.contains(r#"<source file="/tmp/data.qcow2"/>"#));
@@ -423,7 +451,7 @@ mod tests {
             PathBuf::from("/tmp/data.qcow2"),
         ];
         let refs: Vec<&PathBuf> = paths.iter().collect();
-        let xml = generate(&cfg, "test-vm", &refs, None, None, &[], false).unwrap();
+        let xml = generate(&cfg, "test-vm", &refs, None, None, &[], &default_opts()).unwrap();
         // Disk elements should not contain explicit PCI addresses (libvirt auto-assigns)
         let disk_sections: Vec<&str> = xml.split("<disk ").skip(1).collect();
         for section in disk_sections {
@@ -475,7 +503,16 @@ mod tests {
         let paths = [PathBuf::from("/tmp/uefi.qcow2")];
         let refs: Vec<&PathBuf> = paths.iter().collect();
         let nvram = Path::new("/output/custom.nvram");
-        let xml = generate(&cfg, "uefi-vm", &refs, Some(nvram), None, &[], false).unwrap();
+        let xml = generate(
+            &cfg,
+            "uefi-vm",
+            &refs,
+            Some(nvram),
+            None,
+            &[],
+            &default_opts(),
+        )
+        .unwrap();
         assert!(xml.contains("/output/custom.nvram"));
     }
 
@@ -485,7 +522,16 @@ mod tests {
         let paths = [PathBuf::from("/tmp/uefi.qcow2")];
         let refs: Vec<&PathBuf> = paths.iter().collect();
         let ovmf = Path::new("/custom/OVMF_CODE.fd");
-        let xml = generate(&cfg, "uefi-vm", &refs, None, Some(ovmf), &[], false).unwrap();
+        let xml = generate(
+            &cfg,
+            "uefi-vm",
+            &refs,
+            None,
+            Some(ovmf),
+            &[],
+            &default_opts(),
+        )
+        .unwrap();
         assert!(xml.contains("/custom/OVMF_CODE.fd"));
         assert!(!xml.contains("/usr/share/OVMF/OVMF_CODE_4M.fd"));
     }
@@ -560,7 +606,7 @@ mod tests {
         cfg.disks[0].bus = DiskBus::Scsi;
         let paths = [PathBuf::from("/tmp/test.qcow2")];
         let refs: Vec<&PathBuf> = paths.iter().collect();
-        let xml = generate(&cfg, "test-vm", &refs, None, None, &[], false).unwrap();
+        let xml = generate(&cfg, "test-vm", &refs, None, None, &[], &default_opts()).unwrap();
         assert!(xml.contains(r#"bus="scsi""#));
         assert!(xml.contains(r#"dev="sda""#));
         assert!(xml.contains(r#"<controller type="scsi" index="0" model="virtio-scsi"/>"#));
@@ -590,7 +636,19 @@ mod tests {
         cfg.disks[0].bus = DiskBus::Scsi;
         let paths = [PathBuf::from("/tmp/test.qcow2")];
         let refs: Vec<&PathBuf> = paths.iter().collect();
-        let xml = generate(&cfg, "test-vm", &refs, None, None, &[], true).unwrap();
+        let xml = generate(
+            &cfg,
+            "test-vm",
+            &refs,
+            None,
+            None,
+            &[],
+            &GenerateOptions {
+                force_virtio: true,
+                usb_passthrough: true,
+            },
+        )
+        .unwrap();
         assert!(xml.contains(r#"bus="virtio""#));
         assert!(!xml.contains(r#"bus="scsi""#));
     }
@@ -603,7 +661,16 @@ mod tests {
         let disk_paths = [PathBuf::from("/tmp/test.qcow2")];
         let iso_paths = vec![PathBuf::from("/tmp/tools.iso")];
         let refs: Vec<&PathBuf> = disk_paths.iter().collect();
-        let xml = generate(&cfg, "test-vm", &refs, None, None, &iso_paths, false).unwrap();
+        let xml = generate(
+            &cfg,
+            "test-vm",
+            &refs,
+            None,
+            None,
+            &iso_paths,
+            &default_opts(),
+        )
+        .unwrap();
         assert!(xml.contains(r#"device="cdrom""#));
         assert!(xml.contains(r#"<source file="/tmp/tools.iso"/>"#));
         assert!(xml.contains(r#"bus="sata""#));
@@ -618,6 +685,54 @@ mod tests {
             &[PathBuf::from("/tmp/test.qcow2")],
         );
         assert!(!xml.contains("cdrom"));
+    }
+
+    // ── USB passthrough ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_usb_controller_present_by_default() {
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
+        assert!(xml.contains(r#"<controller type="usb" index="0" model="qemu-xhci"/>"#));
+    }
+
+    #[test]
+    fn test_usb_redirection_present_by_default() {
+        let xml = gen(
+            &bios_config(),
+            "test-vm",
+            &[PathBuf::from("/tmp/test.qcow2")],
+        );
+        assert_eq!(
+            xml.matches(r#"<redirdev bus="usb" type="spicevmc"/>"#)
+                .count(),
+            4
+        );
+    }
+
+    #[test]
+    fn test_no_usb_controller_when_disabled() {
+        let cfg = bios_config();
+        let paths = [PathBuf::from("/tmp/test.qcow2")];
+        let refs: Vec<&PathBuf> = paths.iter().collect();
+        let xml = generate(
+            &cfg,
+            "test-vm",
+            &refs,
+            None,
+            None,
+            &[],
+            &GenerateOptions {
+                force_virtio: false,
+                usb_passthrough: false,
+            },
+        )
+        .unwrap();
+        assert!(!xml.contains(r#"<controller type="usb""#));
+        assert!(!xml.contains("redirdev"));
     }
 
     // ── Misc devices ────────────────────────────────────────────────────────

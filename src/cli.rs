@@ -66,6 +66,11 @@ pub struct Args {
     /// Path to the OVMF firmware code file (overrides auto-detection)
     #[arg(long, value_name = "PATH")]
     pub ovmf_code: Option<PathBuf>,
+
+    /// Disable USB controller and SPICE USB redirection
+    /// (USB 3.0 passthrough via qemu-xhci is enabled by default)
+    #[arg(long, default_value_t = false)]
+    pub no_usb: bool,
 }
 
 #[cfg(test)]
@@ -201,5 +206,17 @@ mod tests {
     fn test_target_cache_default_none() {
         let args = Args::parse_from(["vm-convert", "/tmp/myvm"]);
         assert!(args.target_cache.is_none());
+    }
+
+    #[test]
+    fn test_no_usb_flag() {
+        let args = Args::parse_from(["vm-convert", "--no-usb", "/tmp/myvm"]);
+        assert!(args.no_usb);
+    }
+
+    #[test]
+    fn test_usb_enabled_by_default() {
+        let args = Args::parse_from(["vm-convert", "/tmp/myvm"]);
+        assert!(!args.no_usb);
     }
 }
