@@ -182,12 +182,7 @@ fn run(args: Args) -> Result<()> {
 
     // ── Step 5b: Copy NVRAM file ──────────────────────────────────────────────
     let nvram_output_path = if let Some(ref nvram_src) = inv.nvram_path {
-        let nvram_name = nvram_src
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let nvram_dst = output_dir.join(&nvram_name);
+        let nvram_dst = output_dir.join(format!("{vm_name}.nvram"));
         if nvram_src != &nvram_dst {
             std::fs::copy(nvram_src, &nvram_dst).with_context(|| {
                 format!(
